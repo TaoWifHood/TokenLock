@@ -1,0 +1,18 @@
+# `paris` is deliberate: it runs on chains that lack PUSH0 / MCOPY. Do not raise it without proving the target
+# chain supports the newer opcodes — a wrong evm_version fails at deploy time while `forge test` and
+# `forge script` simulation both stay green.
+[profile.default]
+src = "src"
+test = "test"
+script = "script"
+out = "out"
+libs = ["node_modules"]
+solc_version = "0.8.26"
+evm_version = "paris"
+optimizer = true
+optimizer_runs = 200
+bytecode_hash = "none"
+
+[fuzz]
+runs = 256
+
