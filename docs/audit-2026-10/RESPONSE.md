@@ -25,16 +25,17 @@ it closes.
   - With part (a) in place, the phantom-token case behind VULN-001 is refused at deploy.
   - Open for the reviewer: we will add `_deliver` if you consider part (a) insufficient alone.
 
-## Closed by decision (the two questions)
+## The two questions — proposed answers, pending the owner's confirmation
 
-- **Q1 → VULN-031 (Medium): no pre-Cancun chains.** Locks are deployed only where EIP-6780 is active, so a token's code cannot be replaced at its address. Recorded in the README's accepted items. No codehash check.
-- **Q2 → VULN-033 (Medium):** a given lock lives on one chain only, and a deployment on another chain is a separate lock with its own arguments. The chain binding above stays as insurance against an accidental same-address deploy.
+- **Q1 → VULN-031 (Medium), proposed: no pre-Cancun chains.** Locks are deployed only where EIP-6780 is active, so a token's code cannot be replaced at its address. Recorded in the README's accepted items. No codehash check.
+- **Q2 → VULN-033 (Medium), proposed:** a given lock lives on one chain only, and a deployment on another chain is a separate lock with its own arguments. The chain binding above stays as insurance against an accidental same-address deploy.
 
 ## Documentation
 
 - **DOC-1, DOC-2:** contract header, see above.
 - **DOC-3, VULN-022 (Low):** README accepted items now state that the beneficiary can delay withdrawal up to `maxUnlockTime` whatever its threshold, that a 2-of-3 Safe survives a lost key, and that an open relay or multicall must never be the beneficiary.
 - **"10 years":** the README, the Safe guide and the deploy script's revert string now say 3650 days.
+- **Deploy script:** its token check stays `code.length > 0`; the contract's `balanceOf` probe now refuses the same inputs at deploy, so the script check is a fast pre-flight, not the defence.
 - **Test count:** the README now states 47. The review counted 43 against a suite that `forge test` reports as 39.
 
 ## Lower priority and environmental — unchanged
