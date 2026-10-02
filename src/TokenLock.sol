@@ -31,17 +31,19 @@ contract TokenLock {
     error ZeroAddress();
     error NotAContract();
     error BeneficiaryIsLock();
+    error BeneficiaryIsToken();
     error StillLocked(uint256 unlockTime);
     error LockedToken();
     error BadUnlockTime();
 
     /// @param token_ The locked token. Must be a deployed contract.
-    /// @param beneficiary_ The only address that can call this contract. Must not be this contract.
+    /// @param beneficiary_ The only address that can call this contract. Must not be this contract or the token.
     /// @param unlockTime_ Unix seconds; in the future and at most `MAX_LOCK_DURATION` ahead.
     constructor(IERC20 token_, address beneficiary_, uint256 unlockTime_) {
         if (address(token_) == address(0) || beneficiary_ == address(0)) revert ZeroAddress();
         if (address(token_).code.length == 0) revert NotAContract();
         if (beneficiary_ == address(this)) revert BeneficiaryIsLock();
+        if (beneficiary_ == address(token_)) revert BeneficiaryIsToken();
         uint256 ceiling = block.timestamp + MAX_LOCK_DURATION;
         if (unlockTime_ <= block.timestamp || unlockTime_ > ceiling) revert BadUnlockTime();
         token = token_;

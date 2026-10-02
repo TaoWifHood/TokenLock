@@ -84,6 +84,12 @@ contract TokenLockTest is Test {
         new TokenLock(IERC20(address(locked)), address(0), unlock);
     }
 
+    /// The token as beneficiary would seal every exit: only the token could call, and it never does.
+    function test_constructor_rejectsTheTokenAsBeneficiary() public {
+        vm.expectRevert(TokenLock.BeneficiaryIsToken.selector);
+        new TokenLock(IERC20(address(locked)), address(locked), unlock);
+    }
+
     function test_constructor_rejectsNowOrPast() public {
         vm.expectRevert(TokenLock.BadUnlockTime.selector);
         new TokenLock(IERC20(address(locked)), safe, block.timestamp);
