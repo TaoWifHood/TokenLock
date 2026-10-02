@@ -48,6 +48,19 @@
   },
   {
     "type": "function",
+    "name": "deployChainId",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
     "name": "extend",
     "inputs": [
       {
@@ -58,6 +71,19 @@
     ],
     "outputs": [],
     "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "maxUnlockTime",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
   },
   {
     "type": "function",
@@ -175,12 +201,32 @@
   },
   {
     "type": "error",
+    "name": "BeneficiaryIsLock",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "BeneficiaryIsToken",
+    "inputs": []
+  },
+  {
+    "type": "error",
     "name": "LockedToken",
     "inputs": []
   },
   {
     "type": "error",
+    "name": "NotAContract",
+    "inputs": []
+  },
+  {
+    "type": "error",
     "name": "NotBeneficiary",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "NotSweepable",
     "inputs": []
   },
   {
@@ -200,6 +246,22 @@
     "inputs": [
       {
         "name": "unlockTime",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ]
+  },
+  {
+    "type": "error",
+    "name": "WrongChain",
+    "inputs": [
+      {
+        "name": "deployChainId",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "chainId",
         "type": "uint256",
         "internalType": "uint256"
       }

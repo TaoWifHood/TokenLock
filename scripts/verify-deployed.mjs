@@ -2,7 +2,8 @@
 // Prove a DEPLOYED TokenLock runs exactly this repo's source.
 //   forge build && RPC_URL=<rpc> node scripts/verify-deployed.mjs <lock-address>
 // Compares the on-chain runtime with out/TokenLock.sol/TokenLock.json byte for byte, ignoring only the
-// immutable slots (token, beneficiary), and prints what those slots hold. Read-only; no dependencies.
+// immutable slots, and prints what those slots hold. Read-only; no dependencies. A lock deployed from an
+// earlier commit must be checked against a build of that commit.
 import { readFileSync } from "node:fs";
 const addr = process.argv[2], rpc = process.env.RPC_URL;
 if (!addr || !rpc) { console.error("usage: RPC_URL=<rpc> node scripts/verify-deployed.mjs <lock-address>"); process.exit(2); }

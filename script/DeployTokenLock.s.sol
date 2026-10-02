@@ -74,7 +74,8 @@ contract DeployTokenLock is Script {
             require(found, "LOCK_EXPECTED_OWNER is not an owner of this Safe");
         }
         require(unlockTime >= block.timestamp + MIN_LEAD, "unlock is in the past or within 2 h");
-        require(unlockTime <= block.timestamp + 3650 days, "unlock beyond 10 years (seconds, not ms?)");
+        require(unlockTime <= block.timestamp + 3650 days, "unlock beyond 3650 days (seconds, not ms?)");
+        require(beneficiary != address(token), "beneficiary is the token");
 
         console2.log("token       ", address(token));
         console2.log("beneficiary ", beneficiary);
@@ -88,6 +89,8 @@ contract DeployTokenLock is Script {
         require(address(lock.token()) == address(token), "read-back token mismatch");
         require(lock.beneficiary() == beneficiary, "read-back beneficiary mismatch");
         require(lock.unlockTime() == unlockTime, "read-back unlockTime mismatch");
+        require(lock.deployChainId() == block.chainid, "read-back deployChainId mismatch");
+        console2.log("maxUnlockTime", lock.maxUnlockTime());
         console2.log("TokenLock at", address(lock));
     }
 }
