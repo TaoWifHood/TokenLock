@@ -411,6 +411,29 @@ contract TokenLockTest is Test {
         assertEq(lock.unlockTime(), ceiling);
     }
 
+    // ── chain binding ───────────────────────────────────────────────────────
+
+    /// A lock at the same address on another chain is a different contract's state: every
+    /// beneficiary action reverts there.
+    function test_everyAction_onAnotherChain_reverts() public {
+        uint256 home = block.chainid;
+        assertEq(lock.deployChainId(), home);
+        vm.warp(unlock);
+        vm.chainId(home + 1);
+        bytes memory err = abi.encodeWithSelector(TokenLock.WrongChain.selector, home, home + 1);
+        vm.startPrank(safe);
+        vm.expectRevert(err);
+        lock.withdraw(1);
+        vm.expectRevert(err);
+        lock.sweep(IERC20(address(reward)));
+        vm.expectRevert(err);
+        lock.extend(unlock + 1 days);
+        vm.chainId(home);
+        lock.withdraw(1);
+        vm.stopPrank();
+        assertEq(locked.balanceOf(safe), 1);
+    }
+
     // ── ETH ─────────────────────────────────────────────────────────────────
 
     function test_plainEthSend_reverts() public {
