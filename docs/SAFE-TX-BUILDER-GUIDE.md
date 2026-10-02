@@ -27,16 +27,17 @@ Dates → seconds: `date -u -d '2027-03-20 21:00' +%s`; check one back with `dat
 
 ### `extend(uint256 newUnlockTime)` — selector `0x9714378c` — any time
 - **Input:** `newUnlockTime` = unix seconds.
-- **Must hold, or it reverts `BadUnlockTime`:** strictly LATER than the current `unlockTime` · later than the chain's clock · at most 3650 days ahead.
+- **Must hold, or it reverts `BadUnlockTime`:** strictly LATER than the current `unlockTime` · later than the chain's clock · at most `maxUnlockTime()` (the deployment time + 3650 days, fixed for the life of the lock).
 - ⚠ On some chains `block.timestamp` runs ahead of your wall clock. Read it: `cast block latest --field timestamp --rpc-url $R`.
-- It also RE-LOCKS an expired lock — extending after the unlock date passed locks the tokens again. There is no undo: it can only ever move later.
-- A millisecond timestamp fails safely (it is > 10 years out → `BadUnlockTime`).
+- It also RE-LOCKS an expired lock — extending after the unlock date passed locks the tokens again, up to `maxUnlockTime()` and never past it. There is no undo: it can only ever move later.
+- A millisecond timestamp fails safely (it is past `maxUnlockTime()` → `BadUnlockTime`).
 - Calldata: `cast calldata 'extend(uint256)' <seconds>`.
 
 ### `sweep(address otherToken)` — selector `0x01681a62` — any time
 - **Input:** the TOKEN ADDRESS to collect — **not an amount**.
 - Sends the lock's WHOLE balance of that token to the beneficiary. Balance 0 → succeeds and moves 0 (harmless, costs gas).
 - Passing the locked token's address reverts `LockedToken` — by design, sweep can never touch the locked token. (Use this as a safety test: simulate `sweep(<locked token>)` and watch it fail.)
+- Passing the Safe's own address or the lock's address reverts `NotSweepable`.
 - Calldata: `cast calldata 'sweep(address)' <token>`.
 
 ### `withdraw(uint256 amount)` — selector `0x2e1a7d4d` — ONLY after `unlockTime`
@@ -62,6 +63,7 @@ cast call <TOKEN> 'balanceOf(address)(uint256)' $LOCK --rpc-url $R
 cast block latest --field timestamp --rpc-url $R        # the chain's clock
 ```
 `token` and `beneficiary` are immutable — if either is wrong, do not fund the lock; deploy a new one.
+`deployChainId()` must equal the chain you are on; on any other chain every action reverts `WrongChain`.
 
 ## 5. First use, small first
 1. Deploy with `script/DeployTokenLock.s.sol` — dry-run first, `LOCK_EXPECTED_OWNER` set, unlock = chain timestamp + 2 h or more (the script refuses less).
