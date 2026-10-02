@@ -24,6 +24,8 @@ contract TokenLock {
     address public immutable beneficiary;
     /// @notice The latest `unlockTime` this lock can ever have: deployment time + `MAX_LOCK_DURATION`.
     uint256 public immutable maxUnlockTime;
+    /// @notice The chain this lock was deployed on; every beneficiary action reverts elsewhere.
+    uint256 public immutable deployChainId;
     uint256 public unlockTime;
 
     event Withdrawn(uint256 amount);
@@ -39,6 +41,7 @@ contract TokenLock {
     error LockedToken();
     error NotSweepable();
     error BadUnlockTime();
+    error WrongChain(uint256 deployChainId, uint256 chainId);
 
     /// @param token_ The locked token. Must be a deployed contract.
     /// @param beneficiary_ The only address that can call this contract. Must not be this contract or the token.
@@ -53,10 +56,12 @@ contract TokenLock {
         token = token_;
         beneficiary = beneficiary_;
         maxUnlockTime = ceiling;
+        deployChainId = block.chainid;
         unlockTime = unlockTime_;
     }
 
     modifier onlyBeneficiary() {
+        if (block.chainid != deployChainId) revert WrongChain(deployChainId, block.chainid);
         if (msg.sender != beneficiary) revert NotBeneficiary();
         _;
     }
