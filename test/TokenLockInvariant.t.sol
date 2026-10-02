@@ -131,4 +131,8 @@ contract TokenLockInvariantTest is Test {
     function invariant_unlockMonotonic() public view {
         assertGe(lock.unlockTime(), h.lastUnlock());
     }
+
+    function invariant_unlockNeverPassesTheCeiling() public view {
+        assertLe(lock.unlockTime(), lock.maxUnlockTime());
+    }
 }

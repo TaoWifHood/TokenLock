@@ -14,11 +14,13 @@ import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol
 contract TokenLock {
     using SafeERC20 for IERC20;
 
-    /// @notice Upper bound on how far ahead `unlockTime` may be set, in one step.
+    /// @notice How far past the deployment `unlockTime` may ever be set (3650 days, unix seconds).
     uint256 public constant MAX_LOCK_DURATION = 3650 days;
 
     IERC20 public immutable token;
     address public immutable beneficiary;
+    /// @notice The latest `unlockTime` this lock can ever have: deployment time + `MAX_LOCK_DURATION`.
+    uint256 public immutable maxUnlockTime;
     uint256 public unlockTime;
 
     event Withdrawn(uint256 amount);
@@ -40,11 +42,11 @@ contract TokenLock {
         if (address(token_) == address(0) || beneficiary_ == address(0)) revert ZeroAddress();
         if (address(token_).code.length == 0) revert NotAContract();
         if (beneficiary_ == address(this)) revert BeneficiaryIsLock();
-        if (unlockTime_ <= block.timestamp || unlockTime_ > block.timestamp + MAX_LOCK_DURATION) {
-            revert BadUnlockTime();
-        }
+        uint256 ceiling = block.timestamp + MAX_LOCK_DURATION;
+        if (unlockTime_ <= block.timestamp || unlockTime_ > ceiling) revert BadUnlockTime();
         token = token_;
         beneficiary = beneficiary_;
+        maxUnlockTime = ceiling;
         unlockTime = unlockTime_;
     }
 
@@ -69,13 +71,10 @@ contract TokenLock {
         emit Swept(address(otherToken), amount);
     }
 
-    /// @notice Sets a later `unlockTime`. It must be after the current one, in the future, and
-    /// at most `MAX_LOCK_DURATION` ahead. Calling this on an expired lock locks it again.
+    /// @notice Sets a later `unlockTime`. It must be after the current one, in the future, and at
+    /// most `maxUnlockTime`. Calling this on an expired lock locks it again, never past that ceiling.
     function extend(uint256 newUnlockTime) external onlyBeneficiary {
-        if (
-            newUnlockTime <= unlockTime || newUnlockTime <= block.timestamp
-                || newUnlockTime > block.timestamp + MAX_LOCK_DURATION
-        ) {
+        if (newUnlockTime <= unlockTime || newUnlockTime <= block.timestamp || newUnlockTime > maxUnlockTime) {
             revert BadUnlockTime();
         }
         emit Extended(unlockTime, newUnlockTime);

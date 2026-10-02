@@ -353,14 +353,46 @@ contract TokenLockTest is Test {
         lock.extend(block.timestamp);
     }
 
-    function test_extend_beyondTenYearsByRepeatedSteps() public {
+    function test_constructor_setsTheCeilingAtDeploy() public view {
+        assertEq(lock.maxUnlockTime(), 1_750_000_000 + 3650 days);
+    }
+
+    function test_extend_toTheCeiling_succeeds_andOneSecondMore_reverts() public {
+        uint256 ceiling = lock.maxUnlockTime();
         vm.startPrank(safe);
-        for (uint256 i = 0; i < 3; i++) {
-            vm.warp(block.timestamp + 3000 days);
-            lock.extend(block.timestamp + 3650 days);
-        }
+        vm.expectRevert(TokenLock.BadUnlockTime.selector);
+        lock.extend(ceiling + 1);
+        lock.extend(ceiling);
         vm.stopPrank();
-        assertGt(lock.unlockTime(), block.timestamp);
+        assertEq(lock.unlockTime(), ceiling);
+    }
+
+    /// Repeated extensions over time can never carry the lock past the ceiling fixed at deploy.
+    function test_extend_repeatedStepsStopAtTheCeiling() public {
+        uint256 ceiling = lock.maxUnlockTime();
+        vm.startPrank(safe);
+        vm.warp(block.timestamp + 3000 days);
+        vm.expectRevert(TokenLock.BadUnlockTime.selector);
+        lock.extend(block.timestamp + 3650 days);
+        lock.extend(ceiling);
+        vm.warp(ceiling + 1);
+        vm.expectRevert(TokenLock.BadUnlockTime.selector);
+        lock.extend(block.timestamp + 1);
+        lock.withdraw(LOCKED);
+        vm.stopPrank();
+        assertEq(locked.balanceOf(safe), LOCKED);
+    }
+
+    /// An expired lock can be re-locked, but only up to the ceiling — never a fresh 3650 days.
+    function test_extend_afterExpiry_relockIsBoundedByTheCeiling() public {
+        vm.warp(unlock + 1 days);
+        uint256 ceiling = lock.maxUnlockTime();
+        vm.startPrank(safe);
+        vm.expectRevert(TokenLock.BadUnlockTime.selector);
+        lock.extend(block.timestamp + 3650 days);
+        lock.extend(ceiling);
+        vm.stopPrank();
+        assertEq(lock.unlockTime(), ceiling);
     }
 
     // ── ETH ─────────────────────────────────────────────────────────────────
@@ -414,5 +446,6 @@ contract TokenLockTest is Test {
         vm.stopPrank();
         assertGe(mid, before);
         assertGe(lock.unlockTime(), mid);
+        assertLe(lock.unlockTime(), lock.maxUnlockTime());
     }
 }
