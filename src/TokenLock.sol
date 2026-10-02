@@ -7,9 +7,12 @@ import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol
 /// @title TokenLock
 /// @notice Holds one ERC-20 (`token`) for one `beneficiary` until `unlockTime`. Any other
 /// ERC-20 sent to this contract can be collected by the beneficiary at any time.
-/// @dev No owner, admin, proxy, pause or upgrade, and no way to receive ETH. There is no
-/// reentrancy guard: every state-changing function requires `msg.sender == beneficiary`
-/// and pays only the beneficiary. `block.timestamp` may run ahead of wall-clock time on
+/// @dev No owner, admin, proxy, pause or upgrade, and no way to receive ETH. No reentrancy
+/// guard is needed: no state is read after an external call, `unlockTime` only grows, every
+/// payment goes to the one immutable `beneficiary`, and `sweep` never calls the beneficiary or
+/// this contract. `msg.sender == beneficiary` is an identity check, not authorisation: the
+/// beneficiary must be an account whose own code authorises its callers (a Safe), never a
+/// multicall, batcher or open relay. `block.timestamp` may run ahead of wall-clock time on
 /// some chains; choose `unlockTime` with that margin.
 contract TokenLock {
     using SafeERC20 for IERC20;
@@ -34,6 +37,7 @@ contract TokenLock {
     error BeneficiaryIsToken();
     error StillLocked(uint256 unlockTime);
     error LockedToken();
+    error NotSweepable();
     error BadUnlockTime();
 
     /// @param token_ The locked token. Must be a deployed contract.
@@ -65,9 +69,11 @@ contract TokenLock {
     }
 
     /// @notice Sends this contract's whole balance of `otherToken` to the beneficiary.
-    /// Callable at any time. Reverts if `otherToken` is the locked token.
+    /// Callable at any time. Reverts if `otherToken` is the locked token, the beneficiary or this
+    /// contract: a beneficiary can gain code after deployment, so this is checked on every call.
     function sweep(IERC20 otherToken) external onlyBeneficiary returns (uint256 amount) {
         if (otherToken == token) revert LockedToken();
+        if (address(otherToken) == beneficiary || address(otherToken) == address(this)) revert NotSweepable();
         amount = otherToken.balanceOf(address(this));
         otherToken.safeTransfer(beneficiary, amount);
         emit Swept(address(otherToken), amount);

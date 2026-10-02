@@ -248,6 +248,16 @@ contract TokenLockTest is Test {
         lock.sweep(IERC20(address(locked)));
     }
 
+    /// sweep never calls into its own beneficiary or into itself.
+    function test_sweep_beneficiaryOrSelfAsToken_reverts() public {
+        vm.startPrank(safe);
+        vm.expectRevert(TokenLock.NotSweepable.selector);
+        lock.sweep(IERC20(safe));
+        vm.expectRevert(TokenLock.NotSweepable.selector);
+        lock.sweep(IERC20(address(lock)));
+        vm.stopPrank();
+    }
+
     function test_sweep_stranger_reverts() public {
         reward.mint(address(lock), 1 ether);
         vm.prank(stranger);
