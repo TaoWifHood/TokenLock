@@ -58,7 +58,7 @@ Every other lint line in a full `forge build` comes from the test files and mock
 ```
 npm install            # pinned: @openzeppelin/contracts 5.6.1, forge-std v1.16.2
 forge build            # solc 0.8.26, evm paris, optimizer 200 runs, bytecode_hash none
-forge test             # 47 tests: unit + constructor + stateful invariant fuzz
+forge test             # 51 tests: unit + constructor + stateful invariant fuzz + the review's extend-bound readings
 RPC_URL=<rpc> node scripts/verify-deployed.mjs <lock-address>   # a deployed lock's runtime vs this source (build the commit it was deployed from)
 ```
 

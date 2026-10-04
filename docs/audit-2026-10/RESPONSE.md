@@ -16,14 +16,53 @@ it closes.
 
 ## Not adopted as proposed
 
-- **FIX-1's one-line form** (`newUnlockTime > unlockTime + MAX_LOCK_DURATION`):
-  - As a replacement for the current bound, each call moves the base, so repeated calls stack without limit in one block, which is worse than before.
-  - As an addition, it never binds on a live lock, and it still allows almost a full re-lock of an expired one.
-  - The absolute ceiling above closes VULN-011/012/013 without either gap.
-- **FIX-2 part (b), measured delivery in events (VULN-002, Low):** not applied in this change.
-  - `Withdrawn`/`Swept` still report the requested amount and the pre-transfer balance; balances remain the source of truth.
-  - With part (a) in place, the phantom-token case behind VULN-001 is refused at deploy.
-  - Open for the reviewer: we will add `_deliver` if you consider part (a) insufficient alone.
+### FIX-1's one-line form — wrong under either reading
+
+The proposal is `if (newUnlockTime > unlockTime + MAX_LOCK_DURATION) revert BadUnlockTime();`. Its base,
+`unlockTime`, is the value `extend` itself moves, so the bound is not cumulative under either reading. Every
+claim below runs as a test in `test/ExtendBoundReadings.t.sol`, which models the readings as pure predicates.
+
+- **Read as a replacement, it is worse than the original.**
+  - Each call moves the base forward, so ten calls in one block (one Safe batch) lock the balance for
+    ten times `MAX_LOCK_DURATION`, about a century.
+  - The original bound stops the second call (`test_replacement_stacksWithoutLimitInOneBlock`).
+- **Read as an addition to the original bound, it changes nothing on a live lock.**
+  - While `unlockTime > block.timestamp`, `unlockTime + D` is above `block.timestamp + D`, so the new line
+    never binds. A fuzz test shows it accepts exactly what the original accepts
+    (`testFuzz_addition_neverBindsOnALiveLock`).
+  - On an expired lock it binds only slightly. A lock that expired ten days ago can still be re-locked for
+    3,640 days (`test_addition_relocksAnExpiredLockNearlyFully`).
+  - So the review's own "act on this now" case, an expired lock being re-locked for a decade, stays open
+    under this fix.
+- **What closes VULN-011/012/013:** a cumulative bound needs an anchor that never moves.
+  - We anchor at deployment: `maxUnlockTime = deploy time + MAX_LOCK_DURATION`, immutable. We do not anchor
+    at the first `unlockTime`, so every lock gets the same lifetime ceiling whatever its first duration.
+  - No sequence of calls, however spaced in time, passes it (`testFuzz_shipped_neverPassesTheCeiling`, plus
+    `test_extend_repeatedStepsStopAtTheCeiling` and `test_extend_afterExpiry_relockIsBoundedByTheCeiling`
+    on the contract itself).
+
+### FIX-2 part (b), measured delivery (VULN-002, Low) — correct, deferred
+
+The finding stands. With a fee-on-transfer token, `Withdrawn`/`Swept` report the requested amount or the
+pre-transfer balance, not what arrived. Part (a)'s deploy-time probe answers VULN-001; it does not answer this.
+We deferred `_deliver` for three reasons:
+
+- **The meaning of an event changes for every consumer.** The topics stay the same, but the number becomes
+  "delivered", so every monitor has to be re-read.
+- **It can refuse a legitimate transfer.** `NothingDelivered` reverts a dust transfer that credits zero
+  shares on a share-based token; the review notes this trade-off itself.
+- **It adds a call-then-read path.** Its soundness rests on FIX-3 and FIX-4, which are now in, and it would
+  need its own review pass.
+
+**What would change our answer:** if a lock is expected to sweep fee-on-transfer tokens, measured delivery
+is the right default, and we will add `_deliver` as written in the review. Until then, the balances on chain
+are the source of truth.
+
+## The review's "act on this now" — proposed, pending the owner's confirmation
+
+- No lock built from the reviewed source is funded again.
+- Every new lock is deployed from the fixed source.
+- Beneficiary Safes are 2-of-3 or better, so that one lost key does not strand the balance.
 
 ## The two questions — proposed answers, pending the owner's confirmation
 
@@ -36,7 +75,7 @@ it closes.
 - **DOC-3, VULN-022 (Low):** README accepted items now state that the beneficiary can delay withdrawal up to `maxUnlockTime` whatever its threshold, that a 2-of-3 Safe survives a lost key, and that an open relay or multicall must never be the beneficiary.
 - **"10 years":** the README, the Safe guide and the deploy script's revert string now say 3650 days.
 - **Deploy script:** its token check stays `code.length > 0`; the contract's `balanceOf` probe now refuses the same inputs at deploy, so the script check is a fast pre-flight, not the defence.
-- **Test count:** the README now states 47. The review counted 43 against a suite that `forge test` reports as 39.
+- **Test count:** the README now states 51: the 47 contract tests plus the 4 bound readings above. The review counted 43 against a suite that `forge test` reported as 39.
 
 ## Lower priority and environmental — unchanged
 
