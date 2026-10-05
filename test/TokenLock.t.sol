@@ -346,6 +346,24 @@ contract TokenLockTest is Test {
         assertEq(locked.balanceOf(address(lock)), LOCKED);
     }
 
+    // ── token code pin ──────────────────────────────────────────────────────
+
+    function test_constructor_pinsTheTokenCodehash() public view {
+        assertEq(lock.tokenCodehash(), address(locked).codehash);
+    }
+
+    /// Code replaced at the token's address (possible where SELFDESTRUCT still deletes code)
+    /// makes withdraw refuse, naming both hashes.
+    function test_withdraw_tokenCodeChanged_reverts() public {
+        bytes32 deployed = address(locked).codehash;
+        vm.etch(address(locked), type(PhantomERC20).runtimeCode);
+        bytes32 current = address(locked).codehash;
+        vm.warp(unlock);
+        vm.prank(safe);
+        vm.expectRevert(abi.encodeWithSelector(TokenLock.TokenCodeChanged.selector, deployed, current));
+        lock.withdraw(1);
+    }
+
     // ── measured delivery ───────────────────────────────────────────────────
 
     function _lockOf(address tokenAddr) internal returns (TokenLock l) {

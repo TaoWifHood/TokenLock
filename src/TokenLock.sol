@@ -30,6 +30,9 @@ contract TokenLock {
     uint256 public immutable maxUnlockTime;
     /// @notice The chain this lock was deployed on; every beneficiary action reverts elsewhere.
     uint256 public immutable deployChainId;
+    /// @notice The code hash at `token` when this lock was deployed; `withdraw` refuses if it changed,
+    /// so a token destroyed and re-created at the same address cannot be withdrawn as the old one.
+    bytes32 public immutable tokenCodehash;
     uint256 public unlockTime;
 
     /// @notice `amount` is what the beneficiary's balance rose by, not what was requested.
@@ -49,6 +52,7 @@ contract TokenLock {
     error BadUnlockTime();
     error WrongChain(uint256 deployChainId, uint256 chainId);
     error NothingDelivered();
+    error TokenCodeChanged(bytes32 deployed, bytes32 current);
 
     /// @param token_ The locked token. Must answer `balanceOf` with a word: code alone is not enough,
     /// since a wallet with an EIP-7702 delegation or a one-byte stub has code too.
@@ -66,6 +70,7 @@ contract TokenLock {
         beneficiary = beneficiary_;
         maxUnlockTime = ceiling;
         deployChainId = block.chainid;
+        tokenCodehash = address(token_).codehash;
         unlockTime = unlockTime_;
     }
 
@@ -79,6 +84,8 @@ contract TokenLock {
     /// Reverts before `unlockTime`.
     function withdraw(uint256 amount) external onlyBeneficiary {
         if (block.timestamp < unlockTime) revert StillLocked(unlockTime);
+        bytes32 current = address(token).codehash;
+        if (current != tokenCodehash) revert TokenCodeChanged(tokenCodehash, current);
         emit Withdrawn(_deliver(token, amount));
     }
 
