@@ -97,7 +97,7 @@
     ],
     "outputs": [
       {
-        "name": "amount",
+        "name": "delivered",
         "type": "uint256",
         "internalType": "uint256"
       }
@@ -113,6 +113,19 @@
         "name": "",
         "type": "address",
         "internalType": "contract IERC20"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "tokenCodehash",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "bytes32",
+        "internalType": "bytes32"
       }
     ],
     "stateMutability": "view"
@@ -155,6 +168,37 @@
       },
       {
         "name": "newUnlockTime",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "Locked",
+    "inputs": [
+      {
+        "name": "token",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      },
+      {
+        "name": "beneficiary",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      },
+      {
+        "name": "unlockTime",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      },
+      {
+        "name": "maxUnlockTime",
         "type": "uint256",
         "indexed": false,
         "internalType": "uint256"
@@ -231,6 +275,11 @@
   },
   {
     "type": "error",
+    "name": "NothingDelivered",
+    "inputs": []
+  },
+  {
+    "type": "error",
     "name": "SafeERC20FailedOperation",
     "inputs": [
       {
@@ -248,6 +297,22 @@
         "name": "unlockTime",
         "type": "uint256",
         "internalType": "uint256"
+      }
+    ]
+  },
+  {
+    "type": "error",
+    "name": "TokenCodeChanged",
+    "inputs": [
+      {
+        "name": "deployed",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      },
+      {
+        "name": "current",
+        "type": "bytes32",
+        "internalType": "bytes32"
       }
     ]
   },
