@@ -298,6 +298,17 @@ contract TokenLockTest is Test {
         lock.sweep(IERC20(address(f)));
     }
 
+    /// An address with no code is refused by name before any call, including a precompile
+    /// that would otherwise consume the whole gas allowance.
+    function test_sweep_addressWithoutCode_revertsNotAContract() public {
+        vm.startPrank(safe);
+        vm.expectRevert(TokenLock.NotAContract.selector);
+        lock.sweep(IERC20(stranger));
+        vm.expectRevert(TokenLock.NotAContract.selector);
+        lock.sweep(IERC20(address(0x05)));
+        vm.stopPrank();
+    }
+
     function test_reentrantTokenCannotCallBack() public {
         ReentrantERC20 evil = new ReentrantERC20();
         evil.setLock(lock);

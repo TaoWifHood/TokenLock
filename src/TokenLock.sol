@@ -78,9 +78,11 @@ contract TokenLock {
     /// @notice Sends this contract's whole balance of `otherToken` to the beneficiary.
     /// Callable at any time. Reverts if `otherToken` is the locked token, the beneficiary or this
     /// contract: a beneficiary can gain code after deployment, so this is checked on every call.
+    /// An address with no code (an EOA or a precompile) reverts `NotAContract` before any call.
     function sweep(IERC20 otherToken) external onlyBeneficiary returns (uint256 amount) {
         if (otherToken == token) revert LockedToken();
         if (address(otherToken) == beneficiary || address(otherToken) == address(this)) revert NotSweepable();
+        if (address(otherToken).code.length == 0) revert NotAContract();
         amount = otherToken.balanceOf(address(this));
         otherToken.safeTransfer(beneficiary, amount);
         emit Swept(address(otherToken), amount);
