@@ -78,6 +78,7 @@ contract TokenLockTest is Test {
 
     uint256 constant LOCKED = 1_000_000 ether;
 
+    event Locked(address indexed token, address indexed beneficiary, uint256 unlockTime, uint256 maxUnlockTime);
     event Withdrawn(uint256 amount);
     event Swept(address indexed otherToken, uint256 amount);
     event Extended(uint256 oldUnlockTime, uint256 newUnlockTime);
@@ -347,6 +348,12 @@ contract TokenLockTest is Test {
     }
 
     // ── token code pin ──────────────────────────────────────────────────────
+
+    function test_constructor_emitsTheStartingTerms() public {
+        vm.expectEmit(true, true, false, true);
+        emit Locked(address(locked), safe, unlock, block.timestamp + 3650 days);
+        new TokenLock(IERC20(address(locked)), safe, unlock);
+    }
 
     function test_constructor_pinsTheTokenCodehash() public view {
         assertEq(lock.tokenCodehash(), address(locked).codehash);
