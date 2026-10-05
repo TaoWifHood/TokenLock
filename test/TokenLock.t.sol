@@ -43,6 +43,31 @@ contract ReentrantERC20 {
     }
 }
 
+/// @notice Takes `feeBps` of every transfer unless the sender or the receiver is excluded;
+/// the fee leaves circulation.
+contract FeeOnTransferERC20 {
+    mapping(address => uint256) public balanceOf;
+    mapping(address => bool) public excluded;
+    uint256 public feeBps;
+    constructor(uint256 feeBps_) { feeBps = feeBps_; }
+    function mint(address to, uint256 amount) external { balanceOf[to] += amount; }
+    function exclude(address a) external { excluded[a] = true; }
+    function transfer(address to, uint256 amount) external returns (bool) {
+        require(balanceOf[msg.sender] >= amount, "balance");
+        uint256 fee = excluded[msg.sender] || excluded[to] ? 0 : amount * feeBps / 10_000;
+        balanceOf[msg.sender] -= amount;
+        balanceOf[to] += amount - fee;
+        return true;
+    }
+}
+
+/// @notice Answers `balanceOf` and returns true from `transfer` without moving anything.
+contract PhantomERC20 {
+    mapping(address => uint256) public balanceOf;
+    function mint(address to, uint256 amount) external { balanceOf[to] += amount; }
+    function transfer(address, uint256) external pure returns (bool) { return true; }
+}
+
 contract TokenLockTest is Test {
     MockERC20 locked;
     MockERC20 reward;
@@ -319,6 +344,87 @@ contract TokenLockTest is Test {
         assertEq(evil.balanceOf(safe), 3);
         assertEq(lock.unlockTime(), unlock);
         assertEq(locked.balanceOf(address(lock)), LOCKED);
+    }
+
+    // ── measured delivery ───────────────────────────────────────────────────
+
+    function _lockOf(address tokenAddr) internal returns (TokenLock l) {
+        l = new TokenLock(IERC20(tokenAddr), safe, unlock);
+    }
+
+    function test_withdraw_feeOnTransfer_reportsWhatArrived() public {
+        FeeOnTransferERC20 taxed = new FeeOnTransferERC20(300);
+        TokenLock l = _lockOf(address(taxed));
+        taxed.mint(address(l), 1000);
+        vm.warp(unlock);
+        vm.expectEmit(address(l));
+        emit Withdrawn(970);
+        vm.prank(safe);
+        l.withdraw(1000);
+        assertEq(taxed.balanceOf(safe), 970);
+        assertEq(taxed.balanceOf(address(l)), 0);
+    }
+
+    function test_withdraw_feeOnTransfer_excludedLock_deliversInFull() public {
+        FeeOnTransferERC20 taxed = new FeeOnTransferERC20(300);
+        TokenLock l = _lockOf(address(taxed));
+        taxed.exclude(address(l));
+        taxed.mint(address(l), 1000);
+        vm.warp(unlock);
+        vm.expectEmit(address(l));
+        emit Withdrawn(1000);
+        vm.prank(safe);
+        l.withdraw(1000);
+        assertEq(taxed.balanceOf(safe), 1000);
+    }
+
+    /// A transfer that delivers nothing reverts, so the tokens stay in the lock.
+    function test_withdraw_fullTax_revertsAndKeepsTheBalance() public {
+        FeeOnTransferERC20 taxed = new FeeOnTransferERC20(10_000);
+        TokenLock l = _lockOf(address(taxed));
+        taxed.mint(address(l), 1000);
+        vm.warp(unlock);
+        vm.prank(safe);
+        vm.expectRevert(TokenLock.NothingDelivered.selector);
+        l.withdraw(1000);
+        assertEq(taxed.balanceOf(address(l)), 1000);
+    }
+
+    function test_withdraw_phantomTransfer_reverts() public {
+        PhantomERC20 phantom = new PhantomERC20();
+        TokenLock l = _lockOf(address(phantom));
+        phantom.mint(address(l), 1000);
+        vm.warp(unlock);
+        vm.prank(safe);
+        vm.expectRevert(TokenLock.NothingDelivered.selector);
+        l.withdraw(1000);
+    }
+
+    function test_withdraw_zero_isAllowedAndReportsZero() public {
+        vm.warp(unlock);
+        vm.expectEmit(address(lock));
+        emit Withdrawn(0);
+        vm.prank(safe);
+        lock.withdraw(0);
+        assertEq(locked.balanceOf(address(lock)), LOCKED);
+    }
+
+    function test_sweep_feeOnTransferReward_returnsWhatArrived() public {
+        FeeOnTransferERC20 taxedReward = new FeeOnTransferERC20(300);
+        taxedReward.mint(address(lock), 1000);
+        vm.expectEmit(address(lock));
+        emit Swept(address(taxedReward), 970);
+        vm.prank(safe);
+        assertEq(lock.sweep(IERC20(address(taxedReward))), 970);
+        assertEq(taxedReward.balanceOf(safe), 970);
+    }
+
+    function test_sweep_phantomTransfer_reverts() public {
+        PhantomERC20 phantom = new PhantomERC20();
+        phantom.mint(address(lock), 5);
+        vm.prank(safe);
+        vm.expectRevert(TokenLock.NothingDelivered.selector);
+        lock.sweep(IERC20(address(phantom)));
     }
 
     // ── extend ──────────────────────────────────────────────────────────────

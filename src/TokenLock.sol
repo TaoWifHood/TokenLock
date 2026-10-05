@@ -8,12 +8,16 @@ import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol
 /// @notice Holds one ERC-20 (`token`) for one `beneficiary` until `unlockTime`. Any other
 /// ERC-20 sent to this contract can be collected by the beneficiary at any time.
 /// @dev No owner, admin, proxy, pause or upgrade, and no way to receive ETH. No reentrancy
-/// guard is needed: no state is read after an external call, `unlockTime` only grows, every
-/// payment goes to the one immutable `beneficiary`, and `sweep` never calls the beneficiary or
-/// this contract. `msg.sender == beneficiary` is an identity check, not authorisation: the
-/// beneficiary must be an account whose own code authorises its callers (a Safe), never a
-/// multicall, batcher or open relay. `block.timestamp` may run ahead of wall-clock time on
-/// some chains; choose `unlockTime` with that margin.
+/// guard is needed: none of this contract's storage is read after an external call (the
+/// delivered amount is read from the token, and nothing here depends on it), `unlockTime` only
+/// grows, every payment goes to the one immutable `beneficiary`, and during a transfer the only
+/// contract that can call back is the token, which can never be the beneficiary (refused at
+/// deployment for `token`, on every call for a swept token). `msg.sender == beneficiary` is an
+/// identity check, not authorisation: the beneficiary must be an account whose own code
+/// authorises its callers (a Safe), never a multicall, batcher or open relay, and it must keep
+/// what it receives during the call, since delivery is measured on its balance.
+/// `block.timestamp` may run ahead of wall-clock time on some chains; choose `unlockTime` with
+/// that margin.
 contract TokenLock {
     using SafeERC20 for IERC20;
 
@@ -28,7 +32,9 @@ contract TokenLock {
     uint256 public immutable deployChainId;
     uint256 public unlockTime;
 
+    /// @notice `amount` is what the beneficiary's balance rose by, not what was requested.
     event Withdrawn(uint256 amount);
+    /// @notice `amount` is what the beneficiary's balance rose by, not this contract's balance.
     event Swept(address indexed otherToken, uint256 amount);
     event Extended(uint256 oldUnlockTime, uint256 newUnlockTime);
 
@@ -42,6 +48,7 @@ contract TokenLock {
     error NotSweepable();
     error BadUnlockTime();
     error WrongChain(uint256 deployChainId, uint256 chainId);
+    error NothingDelivered();
 
     /// @param token_ The locked token. Must answer `balanceOf` with a word: code alone is not enough,
     /// since a wallet with an EIP-7702 delegation or a one-byte stub has code too.
@@ -68,24 +75,24 @@ contract TokenLock {
         _;
     }
 
-    /// @notice Sends `amount` of the locked token to the beneficiary. Reverts before `unlockTime`.
+    /// @notice Sends `amount` of the locked token to the beneficiary and reports what arrived.
+    /// Reverts before `unlockTime`.
     function withdraw(uint256 amount) external onlyBeneficiary {
         if (block.timestamp < unlockTime) revert StillLocked(unlockTime);
-        token.safeTransfer(beneficiary, amount);
-        emit Withdrawn(amount);
+        emit Withdrawn(_deliver(token, amount));
     }
 
-    /// @notice Sends this contract's whole balance of `otherToken` to the beneficiary.
+    /// @notice Sends this contract's whole balance of `otherToken` to the beneficiary and returns
+    /// what arrived.
     /// Callable at any time. Reverts if `otherToken` is the locked token, the beneficiary or this
     /// contract: a beneficiary can gain code after deployment, so this is checked on every call.
     /// An address with no code (an EOA or a precompile) reverts `NotAContract` before any call.
-    function sweep(IERC20 otherToken) external onlyBeneficiary returns (uint256 amount) {
+    function sweep(IERC20 otherToken) external onlyBeneficiary returns (uint256 delivered) {
         if (otherToken == token) revert LockedToken();
         if (address(otherToken) == beneficiary || address(otherToken) == address(this)) revert NotSweepable();
         if (address(otherToken).code.length == 0) revert NotAContract();
-        amount = otherToken.balanceOf(address(this));
-        otherToken.safeTransfer(beneficiary, amount);
-        emit Swept(address(otherToken), amount);
+        delivered = _deliver(otherToken, otherToken.balanceOf(address(this)));
+        emit Swept(address(otherToken), delivered);
     }
 
     /// @notice Sets a later `unlockTime`. It must be after the current one, in the future, and at
@@ -96,5 +103,16 @@ contract TokenLock {
         }
         emit Extended(unlockTime, newUnlockTime);
         unlockTime = newUnlockTime;
+    }
+
+    /// @dev Transfers `amount` of `t` to the beneficiary and returns what its balance rose by.
+    /// A fee-on-transfer token delivers less and that smaller figure is returned; a non-zero
+    /// request that delivers nothing reverts, because that is a transfer that did not transfer.
+    function _deliver(IERC20 t, uint256 amount) private returns (uint256 delivered) {
+        uint256 balanceBefore = t.balanceOf(beneficiary);
+        t.safeTransfer(beneficiary, amount);
+        uint256 balanceAfter = t.balanceOf(beneficiary);
+        delivered = balanceAfter > balanceBefore ? balanceAfter - balanceBefore : 0;
+        if (amount != 0 && delivered == 0) revert NothingDelivered();
     }
 }
