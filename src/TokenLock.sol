@@ -35,6 +35,8 @@ contract TokenLock {
     bytes32 public immutable tokenCodehash;
     uint256 public unlockTime;
 
+    /// @notice Emitted once, at deployment, so a log-only reader learns the lock's starting terms.
+    event Locked(address indexed token, address indexed beneficiary, uint256 unlockTime, uint256 maxUnlockTime);
     /// @notice `amount` is what the beneficiary's balance rose by, not what was requested.
     event Withdrawn(uint256 amount);
     /// @notice `amount` is what the beneficiary's balance rose by, not this contract's balance.
@@ -72,6 +74,7 @@ contract TokenLock {
         deployChainId = block.chainid;
         tokenCodehash = address(token_).codehash;
         unlockTime = unlockTime_;
+        emit Locked(address(token_), beneficiary_, unlockTime_, ceiling);
     }
 
     modifier onlyBeneficiary() {
