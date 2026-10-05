@@ -1,18 +1,35 @@
 # Response to the security review (v1.1)
 
-Reviewed source: `src/TokenLock.sol` at sha256 `ff3366fa…f242d`. Fixed source: sha256 `98e50d12…cb92b`.
-Every finding is listed below with what was done. One commit per change; each commit message names the findings
-it closes.
+Reviewed source: `src/TokenLock.sol` at sha256 `ff3366fa…f242d`. Fixed source: sha256 `11c72cbc…a9e35`.
+Every finding is listed below with what was done. There is one commit per change, and each commit message names the
+findings it closes. Every recommendation in the review is adopted except two: FIX-1's one-line form, replaced by a
+bound without its gaps, and `MIN_LOCK_DURATION`. Both are explained below.
 
 ## Code changes
 
 | Finding | Sev. | Change | Commit subject |
 |---|---|---|---|
 | VULN-011, VULN-012, VULN-013 | M / L / I | `maxUnlockTime` = deployment + `MAX_LOCK_DURATION`, immutable; `extend` can never pass it. The repeated-extension and re-lock-after-expiry cases are bounded by that ceiling for the life of the lock. | an absolute ceiling on unlockTime, fixed at deploy |
-| VULN-003 | L | The constructor refuses the token as beneficiary (`BeneficiaryIsToken`). | refuse the locked token as beneficiary |
-| VULN-021, VULN-025, VULN-026, DOC-1, DOC-2 | L / I / I | `sweep` refuses the beneficiary and the lock itself (`NotSweepable`), checked on every call. The header now gives the real reason no reentrancy guard is needed, and says the beneficiary must authorise its own callers. | sweep refuses the beneficiary and the lock itself |
+| VULN-003 | L | The constructor refuses the token as beneficiary (`BeneficiaryIsToken`). This is FIX-3. | refuse the locked token as beneficiary |
+| VULN-021, VULN-025, VULN-026, DOC-1, DOC-2 | L / I / I | `sweep` refuses the beneficiary and the lock itself (`NotSweepable`), checked on every call. This is FIX-4. The header gives the real reason no reentrancy guard is needed, and says the beneficiary must authorise its own callers. | sweep refuses the beneficiary and the lock itself |
 | VULN-033 | M | `deployChainId` is immutable; every beneficiary action reverts `WrongChain` on another chain. | bind every beneficiary action to the deployment chain |
 | VULN-001 | M | The constructor requires a decodable `balanceOf` answer instead of `code.length != 0`, so a 7702-delegated wallet or a stub is refused. This is FIX-2 part (a). | the token must answer balanceOf, not merely have code |
+| VULN-004 | I | `sweep` refuses an address with no code (`NotAContract`) before any call, so an EOA or a gas-eating precompile fails by name. | sweep refuses an address with no code by name |
+| VULN-002 | L | FIX-2 part (b) as written: `withdraw` and `sweep` measure the beneficiary's balance around the transfer and report what arrived. A non-zero request that delivers nothing reverts `NothingDelivered`. The header's reentrancy reason is rewritten for the read after the transfer. | withdraw and sweep report what the beneficiary received |
+| VULN-031 | M | `tokenCodehash` is pinned at deployment; `withdraw` reverts `TokenCodeChanged(deployed, current)` if the code at `token` changed. | withdraw refuses if the code at the token's address changed |
+| VULN-017 | I | The constructor emits `Locked(token, beneficiary, unlockTime, maxUnlockTime)`. The existing events are unchanged. | emit Locked with the starting terms at deployment |
+
+### Notes on the adopted changes
+
+- **FIX-2 part (b) is adopted because a fee-on-transfer token may be locked later.** For a token without a transfer fee, the reported numbers are unchanged. The two costs the review names are accepted:
+  - A dust transfer on a share-based token that credits zero shares reverts; the beneficiary retries with more.
+  - The number in `Withdrawn`/`Swept` now means "delivered".
+  - The reentrancy argument for the new read is in the contract header: none of this contract's storage is read after a call, and the token, the only contract that can call back mid-transfer, can never be the beneficiary.
+  - One new beneficiary rule is documented in the README: the beneficiary must keep what it receives during the call, because a beneficiary that forwards on receipt measures zero.
+- **Fee-on-transfer operation is documented, not enforced:**
+  - The lock's address belongs on the token's fee exclusion list before funding.
+  - A token whose owner can raise the fee or revoke that exclusion bounds what the lock can return; the lock cannot defend against that.
+- **The codehash pin goes in `withdraw` only.** That is the one function that moves `token`; `sweep(token)` is refused by address whatever the code. Where EIP-6780 is active the pin cannot fire against a token that was live at deployment, so it is defence in depth there.
 
 ## Not adopted as proposed
 
@@ -41,22 +58,14 @@ claim below runs as a test in `test/ExtendBoundReadings.t.sol`, which models the
     `test_extend_repeatedStepsStopAtTheCeiling` and `test_extend_afterExpiry_relockIsBoundedByTheCeiling`
     on the contract itself).
 
-### FIX-2 part (b), measured delivery (VULN-002, Low) — correct, deferred
+### `MIN_LOCK_DURATION` (VULN-015, Info)
 
-The finding stands. With a fee-on-transfer token, `Withdrawn`/`Swept` report the requested amount or the
-pre-transfer balance, not what arrived. Part (a)'s deploy-time probe answers VULN-001; it does not answer this.
-We deferred `_deliver` for three reasons:
+A floor in the constructor alone is a half-measure, because `extend(block.timestamp + 1)` on an expired lock still makes a one-second lock. A floor on `extend` too would forbid legitimate short re-locks. A too-short lock only opens early for its own beneficiary, so it fails safe. The deploy script keeps its 2-hour minimum lead.
 
-- **The meaning of an event changes for every consumer.** The topics stay the same, but the number becomes
-  "delivered", so every monitor has to be re-read.
-- **It can refuse a legitimate transfer.** `NothingDelivered` reverts a dust transfer that credits zero
-  shares on a share-based token; the review notes this trade-off itself.
-- **It adds a call-then-read path.** Its soundness rests on FIX-3 and FIX-4, which are now in, and it would
-  need its own review pass.
+## The two questions — proposed answers, pending the owner's confirmation
 
-**What would change our answer:** if a lock is expected to sweep fee-on-transfer tokens, measured delivery
-is the right default, and we will add `_deliver` as written in the review. Until then, the balances on chain
-are the source of truth.
+- **Q1 → VULN-031 (Medium), proposed: no pre-Cancun chains.** Locks are deployed only where EIP-6780 is active. The codehash pin above now makes `withdraw` refuse a replaced token on any chain, so this answer is a deployment rule backed by code.
+- **Q2 → VULN-033 (Medium), proposed:** a given lock lives on one chain only, and a deployment on another chain is a separate lock with its own arguments. The chain binding above stays as insurance against an accidental same-address deploy.
 
 ## The review's "act on this now" — proposed, pending the owner's confirmation
 
@@ -64,28 +73,24 @@ are the source of truth.
 - Every new lock is deployed from the fixed source.
 - Beneficiary Safes are 2-of-3 or better, so that one lost key does not strand the balance.
 
-## The two questions — proposed answers, pending the owner's confirmation
-
-- **Q1 → VULN-031 (Medium), proposed: no pre-Cancun chains.** Locks are deployed only where EIP-6780 is active, so a token's code cannot be replaced at its address. Recorded in the README's accepted items. No codehash check.
-- **Q2 → VULN-033 (Medium), proposed:** a given lock lives on one chain only, and a deployment on another chain is a separate lock with its own arguments. The chain binding above stays as insurance against an accidental same-address deploy.
-
 ## Documentation
 
-- **DOC-1, DOC-2:** contract header, see above.
-- **DOC-3, VULN-022 (Low):** README accepted items now state that the beneficiary can delay withdrawal up to `maxUnlockTime` whatever its threshold, that a 2-of-3 Safe survives a lost key, and that an open relay or multicall must never be the beneficiary.
-- **"10 years":** the README, the Safe guide and the deploy script's revert string now say 3650 days.
-- **Deploy script:** its token check stays `code.length > 0`; the contract's `balanceOf` probe now refuses the same inputs at deploy, so the script check is a fast pre-flight, not the defence.
-- **Test count:** the README now states 51: the 47 contract tests plus the 4 bound readings above. The review counted 43 against a suite that `forge test` reported as 39.
+- **DOC-1, DOC-2:** the contract header, see above.
+- **DOC-3, VULN-022 (Low):** the README's accepted items now state three things:
+  - the beneficiary can delay withdrawal up to `maxUnlockTime`, whatever its threshold;
+  - a 2-of-3 Safe survives a lost key;
+  - an open relay or multicall must never be the beneficiary.
+- **"10 years":** the README, the Safe guide and the deploy script's revert string now say 3650 days. `MAX_LOCK_DURATION`'s NatSpec states unix seconds.
+- **Deploy script:** its token check stays `code.length > 0`. The contract's `balanceOf` probe refuses the same inputs at deploy, so the script check is a fast pre-flight, not the defence.
+- **Test count:** the README now states 62: the contract tests plus the 4 bound readings above. The review counted 43 against a suite that `forge test` reported as 39.
+- **ABI and standard JSON input** are regenerated for the fixed source. The standard input compiles to the same runtime bytecode as `forge build`.
 
 ## Lower priority and environmental — unchanged
 
 | Finding | Sev. | Decision |
 |---|---|---|
 | VULN-016 | L | Inherent: the locked token cannot be returned by `sweep`; documented. |
-| VULN-017 | I | No constructor event or extra indexed topics; monitoring reads `unlockTime()` / `Extended`. Open for the reviewer. |
-| VULN-004 | I | `sweep` on a non-ERC-20 keeps its empty revert data. |
-| VULN-015 | I | No `MIN_LOCK_DURATION`; it fails safe, and the deploy script refuses an unlock within 2 h. |
-| VULN-037 | I | `bytecode_hash = "none"` kept; verification goes through the standard JSON input in `docs/`. |
+| VULN-037 | I | `bytecode_hash = "none"` is kept on purpose. Verification goes through the standard JSON input in `docs/`, which reproduces the bytecode exactly. |
 | VULN-035, VULN-040 | I | Environmental (clock reorgs, rollup upgrade authority); no code change implied. |
 
 ## Deployed locks

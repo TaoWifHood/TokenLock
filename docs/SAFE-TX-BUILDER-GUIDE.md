@@ -37,7 +37,8 @@ Dates → seconds: `date -u -d '2027-03-20 21:00' +%s`; check one back with `dat
 - **Input:** the TOKEN ADDRESS to collect — **not an amount**.
 - Sends the lock's WHOLE balance of that token to the beneficiary. Balance 0 → succeeds and moves 0 (harmless, costs gas).
 - Passing the locked token's address reverts `LockedToken` — by design, sweep can never touch the locked token. (Use this as a safety test: simulate `sweep(<locked token>)` and watch it fail.)
-- Passing the Safe's own address or the lock's address reverts `NotSweepable`.
+- Passing the Safe's own address or the lock's address reverts `NotSweepable`; an address with no code (a wallet) reverts `NotAContract`.
+- The `Swept` event and the return value are what actually arrived in the Safe (less than the lock's balance for a fee-on-transfer token).
 - Calldata: `cast calldata 'sweep(address)' <token>`.
 
 ### `withdraw(uint256 amount)` — selector `0x2e1a7d4d` — ONLY after `unlockTime`
@@ -45,6 +46,7 @@ Dates → seconds: `date -u -d '2027-03-20 21:00' +%s`; check one back with `dat
 - Before the unlock date it reverts `StillLocked(unlockTime)`.
 - `amount` greater than the lock's balance reverts (the token transfer fails). Read the exact balance first and paste it:
   `cast call <TOKEN> 'balanceOf(address)(uint256)' <LOCK> --rpc-url $R`.
+- The `Withdrawn` event shows what actually arrived in the Safe. With a fee-on-transfer token that is less than `amount` unless the lock is on the token's fee exclusion list; a transfer that delivers nothing reverts `NothingDelivered` and the tokens stay in the lock.
 - Calldata: `cast calldata 'withdraw(uint256)' <amount>`.
 
 ## 3. Putting tokens in (no function — a plain transfer)
@@ -52,6 +54,8 @@ From the Safe's normal **Send** screen: asset = the locked token, recipient = th
 units (the Send screen does the decimals). Tokens are locked the moment they arrive, under the lock's current date.
 
 ⚠ Send ONLY the lock's own token as the locked asset. Anything else that lands there is sweepable at any time.
+
+⚠ Fee-on-transfer token: put the lock's address on the token's fee exclusion list BEFORE sending, or the fee is taken on the way in and again on every withdraw.
 
 ## 4. Read before you sign (free, no signature)
 ```
