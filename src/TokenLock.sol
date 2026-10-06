@@ -56,12 +56,14 @@ contract TokenLock {
     error NothingDelivered();
     error TokenCodeChanged(bytes32 deployed, bytes32 current);
 
-    /// @param token_ The locked token. Must answer `balanceOf` with a word: code alone is not enough,
-    /// since a wallet with an EIP-7702 delegation or a one-byte stub has code too.
+    /// @param token_ The locked token. Must have code and answer `balanceOf` with a word. Neither
+    /// alone is enough: a wallet with an EIP-7702 delegation or a one-byte stub has code, and a
+    /// precompile answers with a word but has none.
     /// @param beneficiary_ The only address that can call this contract. Must not be this contract or the token.
     /// @param unlockTime_ Unix seconds; in the future and at most `MAX_LOCK_DURATION` ahead.
     constructor(IERC20 token_, address beneficiary_, uint256 unlockTime_) {
         if (address(token_) == address(0) || beneficiary_ == address(0)) revert ZeroAddress();
+        if (address(token_).code.length == 0) revert NotAContract();
         (bool ok, bytes memory ret) = address(token_).staticcall(abi.encodeCall(IERC20.balanceOf, (address(this))));
         if (!ok || ret.length < 32) revert NotAContract();
         if (beneficiary_ == address(this)) revert BeneficiaryIsLock();

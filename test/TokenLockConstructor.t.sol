@@ -32,6 +32,27 @@ contract TokenLockConstructorTest is Test {
         new TokenLock(IERC20(stub), alice, block.timestamp + 1 days);
     }
 
+    /// A precompile has no code yet answers any call, so the `balanceOf` probe alone would accept
+    /// it: sha256 (0x02) returns 32 bytes and identity (0x04) echoes the 36-byte calldata.
+    function test_constructorRefusesTheSha256Precompile() public {
+        _assertCodelessAndAnswersWithAWord(address(0x02));
+        vm.expectRevert(TokenLock.NotAContract.selector);
+        new TokenLock(IERC20(address(0x02)), alice, block.timestamp + 1 days);
+    }
+
+    function test_constructorRefusesTheIdentityPrecompile() public {
+        _assertCodelessAndAnswersWithAWord(address(0x04));
+        vm.expectRevert(TokenLock.NotAContract.selector);
+        new TokenLock(IERC20(address(0x04)), alice, block.timestamp + 1 days);
+    }
+
+    function _assertCodelessAndAnswersWithAWord(address a) internal view {
+        assertEq(a.code.length, 0);
+        (bool ok, bytes memory ret) = a.staticcall(abi.encodeCall(IERC20.balanceOf, (address(this))));
+        assertTrue(ok, "answers the probe");
+        assertGe(ret.length, 32, "with at least a word");
+    }
+
     function test_constructorRefusesItselfAsBeneficiary() public {
         MockERC20 token = new MockERC20();
         address predicted = vm.computeCreateAddress(address(this), vm.getNonce(address(this)));
