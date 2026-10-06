@@ -383,6 +383,26 @@ contract TokenLockTest is Test {
         lock.withdraw(1);
     }
 
+    /// Ether at the token's address leaves a contract's code hash alone. `vm.deal` stands in for a
+    /// forced send, since the token has no payable function.
+    function test_withdraw_oneWeiSentToTheToken_changesNothing() public {
+        bytes32 deployed = address(locked).codehash;
+        vm.deal(address(locked), 1);
+        assertEq(address(locked).codehash, deployed);
+        assertEq(lock.tokenCodehash(), deployed);
+
+        vm.prank(safe);
+        vm.expectRevert(abi.encodeWithSelector(TokenLock.StillLocked.selector, unlock));
+        lock.withdraw(1);
+
+        vm.warp(unlock);
+        vm.prank(safe);
+        vm.expectEmit(address(lock));
+        emit Withdrawn(LOCKED);
+        lock.withdraw(LOCKED);
+        assertEq(locked.balanceOf(safe), LOCKED);
+    }
+
     // ── measured delivery ───────────────────────────────────────────────────
 
     function _lockOf(address tokenAddr) internal returns (TokenLock l) {
