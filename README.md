@@ -1,13 +1,13 @@
 # TokenLock
 
-A single-purpose ERC-20 time lock for any EVM chain. One contract, 128 lines: no owner, no admin, no proxy, no
+A single-purpose ERC-20 time lock for any EVM chain. One contract, 132 lines: no owner, no admin, no proxy, no
 upgrade, no ETH path. Each lock is bound to the chain it was deployed on; no chain-specific opcode is used
 (compiled for `paris`).
 
 **Security review:** an external review of `src/TokenLock.sol` at sha256
 `ff3366fabb6c0aac8c2c78f64c76446cefe7ea8a3bc1f96fb1b161c45f4f242d` was delivered to the owner; the response to
 every finding is [`docs/audit-2026-10/RESPONSE.md`](docs/audit-2026-10/RESPONSE.md). The current source (sha256
-`11c72cbcb441711800f9999eb4e79b011be32b00ee4161d480af72e34bda9e35`) applies those fixes; the changed lines await
+`4bc9d4f0d2da44848bb878dfe6fac7993e6d6c5ff1b04a76e0e846407796cfb4`) applies those fixes; the changed lines await
 the reviewer's delta check.
 **Out of scope:** OpenZeppelin `SafeERC20`/`IERC20` (v5.6.1, unmodified, from npm), the deploy script, the tests.
 
@@ -18,7 +18,7 @@ with the starting terms.
 
 | function | who | when | effect |
 |---|---|---|---|
-| `withdraw(uint256 amount)` | beneficiary | `block.timestamp >= unlockTime` | sends `amount` of the locked token to the beneficiary; reverts `TokenCodeChanged` if the code at `token` differs from deployment |
+| `withdraw(uint256 amount)` | beneficiary | `block.timestamp >= unlockTime` | sends `amount` of the locked token to the beneficiary; reverts `TokenCodeChanged` if the code at `token` differs from deployment, checked before the time gate, so it is reported while still locked |
 | `sweep(IERC20 otherToken)` | beneficiary | any time | sends the lock's whole balance of any token **other than** the locked one; `sweep(token)` reverts `LockedToken`; the beneficiary or the lock itself as `otherToken` reverts `NotSweepable`; an address with no code reverts `NotAContract` |
 | `extend(uint256 newUnlockTime)` | beneficiary | any time | moves the unlock strictly later (and into the future), never past `maxUnlockTime`; re-locks an expired lock within that ceiling |
 
@@ -32,7 +32,7 @@ stay in the lock.
 Why `sweep` exists: a locked token may earn reward payouts in other tokens that arrive at the lock's address
 unsolicited (holder distributions, airdrops). They stay collectable without touching the locked balance.
 
-The constructor refuses a zero token or beneficiary, a token that does not answer `balanceOf` (`NotAContract`), the lock as
+The constructor refuses a zero token or beneficiary, a token with no code or that does not answer `balanceOf` (`NotAContract`), the lock as
 its own beneficiary (`BeneficiaryIsLock`), the token as beneficiary (`BeneficiaryIsToken`), and an unlock time in
 the past or more than 3650 days ahead.
 
@@ -68,7 +68,7 @@ Every other lint line in a full `forge build` comes from the test files and mock
 ```
 npm install            # pinned: @openzeppelin/contracts 5.6.1, forge-std v1.16.2
 forge build            # solc 0.8.26, evm paris, optimizer 200 runs, bytecode_hash none
-forge test             # 62 tests: unit + constructor + stateful invariant fuzz + the review's extend-bound readings
+forge test             # 65 tests: unit + constructor + stateful invariant fuzz + the review's extend-bound readings
 RPC_URL=<rpc> node scripts/verify-deployed.mjs <lock-address>   # a deployed lock's runtime vs this source (build the commit it was deployed from)
 ```
 
