@@ -371,6 +371,18 @@ contract TokenLockTest is Test {
         lock.withdraw(1);
     }
 
+    /// The pin is checked before the time gate, so a lock whose token changed reports it during
+    /// the locked period instead of looking healthy until unlockTime.
+    function test_withdraw_tokenCodeChanged_beforeUnlock_reportsTheChange() public {
+        bytes32 deployed = address(locked).codehash;
+        vm.etch(address(locked), type(PhantomERC20).runtimeCode);
+        bytes32 current = address(locked).codehash;
+        assertLt(block.timestamp, unlock);
+        vm.prank(safe);
+        vm.expectRevert(abi.encodeWithSelector(TokenLock.TokenCodeChanged.selector, deployed, current));
+        lock.withdraw(1);
+    }
+
     // ── measured delivery ───────────────────────────────────────────────────
 
     function _lockOf(address tokenAddr) internal returns (TokenLock l) {

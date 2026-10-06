@@ -86,11 +86,13 @@ contract TokenLock {
     }
 
     /// @notice Sends `amount` of the locked token to the beneficiary and reports what arrived.
-    /// Reverts before `unlockTime`.
+    /// Reverts `TokenCodeChanged` if the code at `token` changed since deployment, checked before
+    /// the time gate so a lock that can never pay out reports it while still locked. Otherwise
+    /// reverts before `unlockTime`.
     function withdraw(uint256 amount) external onlyBeneficiary {
-        if (block.timestamp < unlockTime) revert StillLocked(unlockTime);
         bytes32 current = address(token).codehash;
         if (current != tokenCodehash) revert TokenCodeChanged(tokenCodehash, current);
+        if (block.timestamp < unlockTime) revert StillLocked(unlockTime);
         emit Withdrawn(_deliver(token, amount));
     }
 
