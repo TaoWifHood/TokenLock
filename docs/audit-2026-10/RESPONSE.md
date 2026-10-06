@@ -1,6 +1,6 @@
 # Response to the security review (v1.1)
 
-Reviewed source: `src/TokenLock.sol` at sha256 `ff3366fa…f242d`. Fixed source: sha256 `11c72cbc…a9e35`.
+Reviewed source: `src/TokenLock.sol` at sha256 `ff3366fa…f242d`. Fixed source: sha256 `4bc9d4f0…6cfb4`.
 Every finding is listed below with what was done. There is one commit per change, and each commit message names the
 findings it closes. Every recommendation in the review is adopted except two: FIX-1's one-line form, replaced by a
 bound without its gaps, and `MIN_LOCK_DURATION`. Both are explained below.
@@ -13,11 +13,13 @@ bound without its gaps, and `MIN_LOCK_DURATION`. Both are explained below.
 | VULN-003 | L | The constructor refuses the token as beneficiary (`BeneficiaryIsToken`). This is FIX-3. | refuse the locked token as beneficiary |
 | VULN-021, VULN-025, VULN-026, DOC-1, DOC-2 | L / I / I | `sweep` refuses the beneficiary and the lock itself (`NotSweepable`), checked on every call. This is FIX-4. The header gives the real reason no reentrancy guard is needed, and says the beneficiary must authorise its own callers. | sweep refuses the beneficiary and the lock itself |
 | VULN-033 | M | `deployChainId` is immutable; every beneficiary action reverts `WrongChain` on another chain. | bind every beneficiary action to the deployment chain |
-| VULN-001 | M | The constructor requires a decodable `balanceOf` answer instead of `code.length != 0`, so a 7702-delegated wallet or a stub is refused. This is FIX-2 part (a). | the token must answer balanceOf, not merely have code |
+| VULN-001 | M | The constructor requires a decodable `balanceOf` answer alongside `code.length != 0`, so a 7702-delegated wallet or a stub (code, no answer) and a precompile (an answer, no code) are all refused. This is FIX-2 part (a); the code check was first dropped and is restored by the follow-up below. | the token must answer balanceOf, not merely have code |
 | VULN-004 | I | `sweep` refuses an address with no code (`NotAContract`) before any call, so an EOA or a gas-eating precompile fails by name. | sweep refuses an address with no code by name |
 | VULN-002 | L | FIX-2 part (b) as written: `withdraw` and `sweep` measure the beneficiary's balance around the transfer and report what arrived. A non-zero request that delivers nothing reverts `NothingDelivered`. The header's reentrancy reason is rewritten for the read after the transfer. | withdraw and sweep report what the beneficiary received |
 | VULN-031 | M | `tokenCodehash` is pinned at deployment; `withdraw` reverts `TokenCodeChanged(deployed, current)` if the code at `token` changed. | withdraw refuses if the code at the token's address changed |
 | VULN-017 | I | The constructor emits `Locked(token, beneficiary, unlockTime, maxUnlockTime)`. The existing events are unchanged. | emit Locked with the starting terms at deployment |
+| VULN-001 follow-up | M | Delta review: the first VULN-001 change replaced the code-length check instead of adding to it, so a codeless account that answers with a word (the sha256 and identity precompiles) passed. `code.length == 0` reverts `NotAContract` again, before the probe, so no call is made to a codeless address. | the token must have code as well as answer balanceOf |
+| VULN-137 | — | Delta review: `withdraw` checks the `tokenCodehash` pin before the time gate, so a lock whose token code changed reverts `TokenCodeChanged` during the locked period instead of `StillLocked`. The set of accepted calls is unchanged. | withdraw checks the token code pin before the time gate |
 
 ### Notes on the adopted changes
 
@@ -29,7 +31,7 @@ bound without its gaps, and `MIN_LOCK_DURATION`. Both are explained below.
 - **Fee-on-transfer operation is documented, not enforced:**
   - The lock's address belongs on the token's fee exclusion list before funding.
   - A token whose owner can raise the fee or revoke that exclusion bounds what the lock can return; the lock cannot defend against that.
-- **The codehash pin goes in `withdraw` only.** That is the one function that moves `token`; `sweep(token)` is refused by address whatever the code. Where EIP-6780 is active the pin cannot fire against a token that was live at deployment, so it is defence in depth there.
+- **The codehash pin goes in `withdraw` only.** That is the one function that moves `token`; `sweep(token)` is refused by address whatever the code. Where EIP-6780 is active the pin cannot fire against a token that was live at deployment, so it is defence in depth there. It is checked before the time gate (VULN-137), so a broken lock is visible as soon as the token's code changes.
 
 ## Not adopted as proposed
 
@@ -81,8 +83,8 @@ A floor in the constructor alone is a half-measure, because `extend(block.timest
   - a 2-of-3 Safe survives a lost key;
   - an open relay or multicall must never be the beneficiary.
 - **"10 years":** the README, the Safe guide and the deploy script's revert string now say 3650 days. `MAX_LOCK_DURATION`'s NatSpec states unix seconds.
-- **Deploy script:** its token check stays `code.length > 0`. The contract's `balanceOf` probe refuses the same inputs at deploy, so the script check is a fast pre-flight, not the defence.
-- **Test count:** the README now states 62: the contract tests plus the 4 bound readings above. The review counted 43 against a suite that `forge test` reported as 39.
+- **Deploy script:** its token check stays `code.length > 0`. The constructor makes the same check and then the `balanceOf` probe, so the script check is a fast pre-flight, not the defence.
+- **Test count:** the README now states 65: the contract tests plus the 4 bound readings above. The review counted 43 against a suite that `forge test` reported as 39.
 - **ABI and standard JSON input** are regenerated for the fixed source. The standard input compiles to the same runtime bytecode as `forge build`.
 
 ## Lower priority and environmental — unchanged

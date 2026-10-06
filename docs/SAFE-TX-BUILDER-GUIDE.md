@@ -44,6 +44,7 @@ Dates → seconds: `date -u -d '2027-03-20 21:00' +%s`; check one back with `dat
 ### `withdraw(uint256 amount)` — selector `0x2e1a7d4d` — ONLY after `unlockTime`
 - **Input:** `amount` in the token's smallest unit. It is NOT "withdraw all" — you name the amount.
 - Before the unlock date it reverts `StillLocked(unlockTime)`.
+- If the code at the token's address changed since the lock was deployed it reverts `TokenCodeChanged`, before or after the unlock date: that lock can never pay out.
 - `amount` greater than the lock's balance reverts (the token transfer fails). Read the exact balance first and paste it:
   `cast call <TOKEN> 'balanceOf(address)(uint256)' <LOCK> --rpc-url $R`.
 - The `Withdrawn` event shows what actually arrived in the Safe. With a fee-on-transfer token that is less than `amount` unless the lock is on the token's fee exclusion list; a transfer that delivers nothing reverts `NothingDelivered` and the tokens stay in the lock.
@@ -73,7 +74,7 @@ cast block latest --field timestamp --rpc-url $R        # the chain's clock
 1. Deploy with `script/DeployTokenLock.s.sol` — dry-run first, `LOCK_EXPECTED_OWNER` set, unlock = chain timestamp + 2 h or more (the script refuses less).
 2. Run the §4 reads. Verify the source on the explorer.
 3. Send a small test amount. Confirm `balanceOf(lock)`.
-4. In the builder, **Simulate** `sweep(<locked token>)` → must fail `LockedToken`. Simulate `withdraw(<test amount>)` → must fail `StillLocked`. Do not sign either.
+4. In the builder, **Simulate** `sweep(<locked token>)` → must fail `LockedToken`. Simulate `withdraw(<test amount>)` → must fail `StillLocked` (`TokenCodeChanged` means the lock is unusable: do not fund it). Do not sign either.
 5. `extend` to the real date → sign → re-read `unlockTime()`.
 6. Send the real amount. Re-read the balance.
 
