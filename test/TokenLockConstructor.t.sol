@@ -57,18 +57,60 @@ contract TokenLockConstructorTest is Test {
     /// ether, so a lock over one would pin 0 and anyone could brick `withdraw` with 1 wei. Such a
     /// lock cannot be built, whether or not the address already holds ether.
     function test_constructorRefusesAPrecompileBeforeAndAfterItHoldsEther() public {
+        uint256 checked;
         for (uint160 i = 0x02; i <= 0x04; i++) {
             address p = address(i);
             _assertCodelessAndAnswersWithAWord(p);
             assertEq(p.codehash, bytes32(0), "empty account");
-            vm.expectRevert(TokenLock.NotAContract.selector);
-            new TokenLock(IERC20(p), alice, block.timestamp + 1 days);
+            assertEq(_deployRevertData(IERC20(p)), abi.encodeWithSelector(TokenLock.NotAContract.selector));
 
             vm.deal(p, 1);
             assertEq(p.codehash, keccak256(""), "1 wei moves the code hash");
-            vm.expectRevert(TokenLock.NotAContract.selector);
-            new TokenLock(IERC20(p), alice, block.timestamp + 1 days);
+            assertEq(_deployRevertData(IERC20(p)), abi.encodeWithSelector(TokenLock.NotAContract.selector));
+            checked++;
         }
+        assertEq(checked, 3, "every precompile was checked in both states");
+    }
+
+    /// A deployment that must revert mid-test goes through try/catch: with forge's dynamic test
+    /// linking on, `vm.expectRevert` before a `new` ends the test at that revert and skips the rest.
+    function _deployRevertData(IERC20 t) internal returns (bytes memory) {
+        try new TokenLock(t, alice, block.timestamp + 1 days) {
+            revert("deployed");
+        } catch (bytes memory err) {
+            return err;
+        }
+    }
+
+    /// Every precompile is refused by name before any call is made, so one that burns the whole
+    /// gas allowance on malformed input (modexp, the bn254 and blake2f precompiles) costs no more
+    /// than any other refusal.
+    function test_constructorRefusesEveryPrecompileByNameWithoutCallingIt() public {
+        for (uint160 i = 0x01; i <= 0x0a; i++) {
+            address p = address(i);
+            assertEq(p.code.length, 0);
+            uint256 before = gasleft();
+            try new TokenLock(IERC20(p), alice, block.timestamp + 1 days) {
+                fail();
+            } catch (bytes memory err) {
+                assertEq(bytes4(err), TokenLock.NotAContract.selector);
+            }
+            assertLt(before - gasleft(), 500_000, "refused without forwarding gas to the precompile");
+        }
+    }
+
+    /// The contract has no minimum duration: a lock one second long is accepted and opens on time.
+    function test_constructorAcceptsAOneSecondLock() public {
+        MockERC20 token = new MockERC20();
+        TokenLock l = new TokenLock(IERC20(address(token)), alice, block.timestamp + 1);
+        token.mint(address(l), 5);
+        vm.prank(alice);
+        vm.expectRevert(abi.encodeWithSelector(TokenLock.StillLocked.selector, block.timestamp + 1));
+        l.withdraw(5);
+        vm.warp(block.timestamp + 1);
+        vm.prank(alice);
+        l.withdraw(5);
+        assertEq(token.balanceOf(alice), 5);
     }
 
     function _assertCodelessAndAnswersWithAWord(address a) internal view {

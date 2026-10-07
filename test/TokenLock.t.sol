@@ -68,6 +68,45 @@ contract PhantomERC20 {
     function transfer(address, uint256) external pure returns (bool) { return true; }
 }
 
+/// @notice Forwards any call from anyone: identity without authorisation.
+contract OpenRelay {
+    function forward(address target, bytes calldata data) external returns (bytes memory) {
+        (bool ok, bytes memory ret) = target.call(data);
+        require(ok, "forwarded call reverted");
+        return ret;
+    }
+}
+
+interface ITokenReceiver {
+    function onTokenReceived(uint256 amount) external;
+}
+
+/// @notice Notifies a receiving contract inside `transfer`, so the receiver can act before the
+/// transfer returns.
+contract HookERC20 {
+    mapping(address => uint256) public balanceOf;
+    function mint(address to, uint256 amount) external { balanceOf[to] += amount; }
+    function transfer(address to, uint256 amount) external returns (bool) {
+        require(balanceOf[msg.sender] >= amount, "balance");
+        balanceOf[msg.sender] -= amount;
+        balanceOf[to] += amount;
+        if (to.code.length > 0) ITokenReceiver(to).onTokenReceived(amount);
+        return true;
+    }
+}
+
+/// @notice Passes on everything it receives the moment it arrives.
+contract ForwardingBeneficiary is ITokenReceiver {
+    HookERC20 public immutable token;
+    address public immutable sink;
+    constructor(HookERC20 token_, address sink_) { token = token_; sink = sink_; }
+    function onTokenReceived(uint256 amount) external { token.transfer(sink, amount); }
+    function call(address target, bytes calldata data) external {
+        (bool ok, bytes memory ret) = target.call(data);
+        if (!ok) assembly { revert(add(ret, 32), mload(ret)) }
+    }
+}
+
 contract TokenLockTest is Test {
     MockERC20 locked;
     MockERC20 reward;
@@ -117,10 +156,19 @@ contract TokenLockTest is Test {
     }
 
     function test_constructor_rejectsNowOrPast() public {
-        vm.expectRevert(TokenLock.BadUnlockTime.selector);
-        new TokenLock(IERC20(address(locked)), safe, block.timestamp);
-        vm.expectRevert(TokenLock.BadUnlockTime.selector);
-        new TokenLock(IERC20(address(locked)), safe, block.timestamp - 1);
+        bytes memory bad = abi.encodeWithSelector(TokenLock.BadUnlockTime.selector);
+        assertEq(_deployRevertData(block.timestamp), bad, "now");
+        assertEq(_deployRevertData(block.timestamp - 1), bad, "one second ago");
+    }
+
+    /// A deployment that must revert mid-test goes through try/catch: with forge's dynamic test
+    /// linking on, `vm.expectRevert` before a `new` ends the test at that revert and skips the rest.
+    function _deployRevertData(uint256 unlockTime_) internal returns (bytes memory) {
+        try new TokenLock(IERC20(address(locked)), safe, unlockTime_) {
+            revert("deployed");
+        } catch (bytes memory err) {
+            return err;
+        }
     }
 
     function test_constructor_rejectsMillisecondTypo() public {
@@ -333,6 +381,57 @@ contract TokenLockTest is Test {
         vm.expectRevert(TokenLock.NotAContract.selector);
         lock.sweep(IERC20(address(0x05)));
         vm.stopPrank();
+    }
+
+    /// The zero address, every precompile and an EOA are refused by name, and none of them is
+    /// called, so a precompile that burns all forwarded gas on malformed input costs nothing.
+    function test_sweep_everyAddressWithoutCode_revertsNotAContractWithoutCallingIt() public {
+        address[] memory targets = new address[](12);
+        targets[0] = address(0);
+        for (uint160 i = 1; i <= 10; i++) targets[i] = address(i);
+        targets[11] = stranger;
+        vm.startPrank(safe);
+        for (uint256 i; i < targets.length; i++) {
+            assertEq(targets[i].code.length, 0);
+            uint256 before = gasleft();
+            try lock.sweep(IERC20(targets[i])) {
+                fail();
+            } catch (bytes memory err) {
+                assertEq(err, abi.encodeWithSelector(TokenLock.NotAContract.selector));
+            }
+            assertLt(before - gasleft(), 50_000, "refused without forwarding gas to the target");
+        }
+        vm.stopPrank();
+    }
+
+    /// The beneficiary may have no code at deployment and gain it later (an EIP-7702 delegation,
+    /// a counterfactual deployment); `sweep` still refuses it, without calling it.
+    function test_sweep_beneficiaryThatGainsCodeLater_isStillRefused() public {
+        assertEq(safe.code.length, 0, "codeless at deployment");
+        vm.etch(safe, type(ReentrantERC20).runtimeCode);
+        ReentrantERC20(safe).setLock(lock);
+        ReentrantERC20(safe).mint(address(lock), 5);
+
+        vm.expectCall(safe, abi.encodeWithSelector(IERC20.balanceOf.selector), 0);
+        vm.expectCall(safe, abi.encodeWithSelector(IERC20.transfer.selector), 0);
+        vm.prank(safe);
+        vm.expectRevert(TokenLock.NotSweepable.selector);
+        lock.sweep(IERC20(safe));
+
+        reward.mint(address(lock), 1);
+        vm.prank(safe);
+        assertEq(lock.sweep(IERC20(address(reward))), 1, "the beneficiary still operates the lock");
+    }
+
+    /// An address argument with dirty upper bits is refused by the ABI decoder before any check.
+    function test_sweep_dirtyAddressBits_revert() public {
+        bytes memory data =
+            abi.encodePacked(TokenLock.sweep.selector, bytes32(uint256(uint160(address(locked))) | (uint256(1) << 160)));
+        vm.prank(safe);
+        (bool ok, bytes memory ret) = address(lock).call(data);
+        assertFalse(ok);
+        assertEq(ret.length, 0, "the decoder reverts with no data");
+        assertEq(locked.balanceOf(address(lock)), LOCKED);
     }
 
     function test_reentrantTokenCannotCallBack() public {
@@ -585,6 +684,68 @@ contract TokenLockTest is Test {
         assertEq(lock.unlockTime(), ceiling);
     }
 
+    /// The contract has no minimum duration: an expired lock can be re-locked for one second.
+    function test_extend_afterExpiry_acceptsAOneSecondRelock() public {
+        vm.warp(unlock + 1 days);
+        vm.prank(safe);
+        lock.extend(block.timestamp + 1);
+        vm.prank(safe);
+        vm.expectRevert(abi.encodeWithSelector(TokenLock.StillLocked.selector, block.timestamp + 1));
+        lock.withdraw(1);
+        vm.warp(block.timestamp + 1);
+        vm.prank(safe);
+        lock.withdraw(1);
+        assertEq(locked.balanceOf(safe), 1);
+    }
+
+    /// Opening is not latched: if the chain's clock moves back below `unlockTime` (a reorg), the
+    /// lock is closed again until the clock passes it once more.
+    function test_withdraw_isNotLatched_aClockThatMovesBackClosesTheLockAgain() public {
+        vm.warp(unlock);
+        vm.prank(safe);
+        lock.withdraw(1);
+        vm.warp(unlock - 1);
+        vm.prank(safe);
+        vm.expectRevert(abi.encodeWithSelector(TokenLock.StillLocked.selector, unlock));
+        lock.withdraw(1);
+        vm.warp(unlock);
+        vm.prank(safe);
+        lock.withdraw(1);
+        assertEq(locked.balanceOf(safe), 2);
+    }
+
+    // ── what the beneficiary must be ────────────────────────────────────────
+
+    /// `msg.sender == beneficiary` is an identity check: a beneficiary that forwards anyone's
+    /// call lets anyone extend, and after unlock withdraw and take the balance.
+    function test_openRelayBeneficiary_letsAnyoneActThroughIt() public {
+        OpenRelay relay = new OpenRelay();
+        TokenLock l = new TokenLock(IERC20(address(locked)), address(relay), unlock);
+        locked.mint(address(l), 100);
+
+        vm.startPrank(stranger);
+        relay.forward(address(l), abi.encodeCall(TokenLock.extend, (unlock + 1 days)));
+        assertEq(l.unlockTime(), unlock + 1 days, "a stranger moved the unlock");
+        vm.warp(unlock + 1 days);
+        relay.forward(address(l), abi.encodeCall(TokenLock.withdraw, (100)));
+        relay.forward(address(locked), abi.encodeCall(MockERC20.transfer, (stranger, 100)));
+        vm.stopPrank();
+        assertEq(locked.balanceOf(stranger), 100, "a stranger took the balance");
+    }
+
+    /// Delivery is measured on the beneficiary's balance, so a beneficiary that passes tokens on
+    /// as they arrive shows no increase and the withdrawal reverts with the tokens still locked.
+    function test_beneficiaryThatForwardsOnReceipt_cannotWithdraw() public {
+        HookERC20 hooked = new HookERC20();
+        ForwardingBeneficiary fwd = new ForwardingBeneficiary(hooked, stranger);
+        TokenLock l = new TokenLock(IERC20(address(hooked)), address(fwd), unlock);
+        hooked.mint(address(l), 100);
+        vm.warp(unlock);
+        vm.expectRevert(TokenLock.NothingDelivered.selector);
+        fwd.call(address(l), abi.encodeCall(TokenLock.withdraw, (100)));
+        assertEq(hooked.balanceOf(address(l)), 100);
+    }
+
     // ── chain binding ───────────────────────────────────────────────────────
 
     /// A lock at the same address on another chain is a different contract's state: every
@@ -609,6 +770,17 @@ contract TokenLockTest is Test {
     }
 
     // ── ETH ─────────────────────────────────────────────────────────────────
+
+    function test_unknownSelector_reverts() public {
+        vm.deal(safe, 1 ether);
+        vm.prank(safe);
+        (bool ok,) = address(lock).call(abi.encodeWithSignature("transferOwnership(address)", stranger));
+        assertFalse(ok, "no fallback");
+        vm.prank(safe);
+        (ok,) = address(lock).call{value: 1}(abi.encodeCall(TokenLock.extend, (unlock + 1)));
+        assertFalse(ok, "no payable function");
+        assertEq(lock.unlockTime(), unlock);
+    }
 
     function test_plainEthSend_reverts() public {
         vm.deal(stranger, 1 ether);
@@ -647,6 +819,24 @@ contract TokenLockTest is Test {
         vm.stopPrank();
         assertEq(locked.balanceOf(address(lock)), LOCKED);
         assertEq(reward.balanceOf(address(lock)), 1 ether);
+    }
+
+    /// The same, with the clock and both attempts drawn around the lock's live window, where an
+    /// unbounded draw almost never lands.
+    function testFuzz_extendAroundTheLiveWindowNeverShortens(uint256 t, uint256 a, uint256 b) public {
+        uint256 ceiling = lock.maxUnlockTime();
+        vm.warp(bound(t, block.timestamp, ceiling + 1 days));
+        a = bound(a, block.timestamp - 1 days, ceiling + 1 days);
+        b = bound(b, block.timestamp - 1 days, ceiling + 1 days);
+        uint256 before = lock.unlockTime();
+        vm.startPrank(safe);
+        try lock.extend(a) {} catch {}
+        uint256 mid = lock.unlockTime();
+        try lock.extend(b) {} catch {}
+        vm.stopPrank();
+        assertGe(mid, before);
+        assertGe(lock.unlockTime(), mid);
+        assertLe(lock.unlockTime(), ceiling);
     }
 
     /// unlockTime is monotonic under any sequence of extend attempts.

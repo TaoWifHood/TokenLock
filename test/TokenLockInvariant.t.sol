@@ -20,6 +20,7 @@ contract LockHandler is Test {
     uint256 public earlyWithdrawals; // a withdraw that succeeded while still locked — must stay 0
     uint256 public strangerSuccesses; // any stranger call that succeeded — must stay 0
     uint256 public lastUnlock;
+    uint256 public shortenings; // an extend that left unlockTime earlier than before — must stay 0
     uint256 public calls;
 
     constructor(TokenLock lock_, MockERC20 locked_, MockERC20 reward_, address beneficiary_) {
@@ -65,11 +66,13 @@ contract LockHandler is Test {
         calls++;
     }
 
+    /// A failing assertion here would only revert this call, undoing the extend it should report, so
+    /// a shortening is counted and `invariant_unlockNeverShortened` asserts the count.
     function extend(uint256 t) external {
         t = bound(t, 0, block.timestamp + 4000 days);
         vm.prank(safe);
         try lock.extend(t) {} catch {}
-        assertGe(lock.unlockTime(), lastUnlock, "unlockTime moved earlier");
+        if (lock.unlockTime() < lastUnlock) shortenings++;
         lastUnlock = lock.unlockTime();
         calls++;
     }
@@ -130,6 +133,10 @@ contract TokenLockInvariantTest is Test {
 
     function invariant_unlockMonotonic() public view {
         assertGe(lock.unlockTime(), h.lastUnlock());
+    }
+
+    function invariant_unlockNeverShortened() public view {
+        assertEq(h.shortenings(), 0);
     }
 
     function invariant_unlockNeverPassesTheCeiling() public view {
