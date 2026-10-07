@@ -821,22 +821,14 @@ contract TokenLockTest is Test {
         assertEq(reward.balanceOf(address(lock)), 1 ether);
     }
 
-    /// The same, with the clock and both attempts drawn around the lock's live window, where an
-    /// unbounded draw almost never lands.
-    function testFuzz_extendAroundTheLiveWindowNeverShortens(uint256 t, uint256 a, uint256 b) public {
-        uint256 ceiling = lock.maxUnlockTime();
-        vm.warp(bound(t, block.timestamp, ceiling + 1 days));
-        a = bound(a, block.timestamp - 1 days, ceiling + 1 days);
-        b = bound(b, block.timestamp - 1 days, ceiling + 1 days);
-        uint256 before = lock.unlockTime();
-        vm.startPrank(safe);
-        try lock.extend(a) {} catch {}
-        uint256 mid = lock.unlockTime();
-        try lock.extend(b) {} catch {}
-        vm.stopPrank();
-        assertGe(mid, before);
-        assertGe(lock.unlockTime(), mid);
-        assertLe(lock.unlockTime(), ceiling);
+    /// Any time between now and the current unlockTime is refused, at any moment before unlock.
+    function testFuzz_extendToAnEarlierFutureTimeIsRefused(uint256 t, uint256 a) public {
+        vm.warp(bound(t, block.timestamp, unlock - 2));
+        a = bound(a, block.timestamp + 1, unlock - 1);
+        vm.prank(safe);
+        vm.expectRevert(TokenLock.BadUnlockTime.selector);
+        lock.extend(a);
+        assertEq(lock.unlockTime(), unlock);
     }
 
     /// unlockTime is monotonic under any sequence of extend attempts.
