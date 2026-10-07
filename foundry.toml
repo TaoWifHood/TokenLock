@@ -12,6 +12,10 @@ evm_version = "paris"
 optimizer = true
 optimizer_runs = 200
 bytecode_hash = "none"
+# Off so an incremental build recompiles everything that embeds TokenLock's bytecode: with it on, a change
+# to src/ recompiles TokenLock alone and script/DeployTokenLock.s.sol keeps deploying the previous build.
+# It is a build-pipeline switch only; TokenLock's bytecode is the same either way.
+dynamic_test_linking = false
 
 [fuzz]
 runs = 256
