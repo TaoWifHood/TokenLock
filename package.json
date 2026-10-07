@@ -4,7 +4,7 @@
   "description": "TokenLock — a single-purpose, immutable ERC-20 time lock whose beneficiary can sweep any OTHER token at any time",
   "private": true,
   "license": "MIT",
-  "scripts": { "build": "forge build", "test": "forge test" },
+  "scripts": { "build": "forge build", "test": "forge test", "rehearse": "node scripts/rehearse-deploy.mjs", "mutations": "node scripts/audit-mutations.mjs" },
   "dependencies": {
     "@openzeppelin/contracts": "5.6.1",
     "forge-std": "github:foundry-rs/forge-std#v1.16.2"
