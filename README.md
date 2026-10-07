@@ -66,20 +66,50 @@ Every other lint line in a full `forge build` comes from the test files and mock
 
 ## Reproduce
 ```
-npm install            # pinned: @openzeppelin/contracts 5.6.1, forge-std v1.16.2
+npm ci                 # pinned: @openzeppelin/contracts 5.6.1, forge-std v1.16.2
 forge build            # solc 0.8.26, evm paris, optimizer 200 runs, bytecode_hash none
-forge test             # 68 tests: unit + constructor + stateful invariant fuzz + the review's extend-bound readings
-RPC_URL=<rpc> node scripts/verify-deployed.mjs <lock-address>   # a deployed lock's runtime vs this source (build the commit it was deployed from)
+forge test             # 100 tests: unit + constructor + stateful invariant fuzz + the review's extend-bound readings + the deploy script
+npm run mutations      # undoes each review fix in a scratch copy; every test named for it must fail
+npm run rehearse       # a full fresh deployment on a local anvil chain (see the checklist below)
+RPC_URL=<rpc> node scripts/verify-deployed.mjs <lock-address> --token <addr> --beneficiary <addr> --unlock-time <s> --chain-id <id>
 ```
+`verify-deployed.mjs` compares a deployed lock's runtime with this source (build the commit it was deployed from)
+and, given the terms, checks them through the getters. Without the terms it proves the code only: the immutables
+are masked, so a lock with the wrong beneficiary still matches.
 
 ## Deploy
 `script/DeployTokenLock.s.sol` refuses a wrong chain, a token with no code, a beneficiary that does not answer
-like a Safe or that is the token, and an unlock time that is too close or too far, all in simulation before anything
-is broadcast.
+like a Safe, lacks `LOCK_EXPECTED_OWNER` or is the token, and an unlock time that is too close or too far, all in
+simulation before anything is broadcast. Unset, `LOCK_EXPECTED_OWNER` is only warned about: always set it.
 See the usage block at the top of the script.
+
+## Fresh deployment checklist
+Run from a clean checkout of the commit you deploy. Tested with forge 1.8.1, node 22, solc 0.8.26 (the svm copy
+forge installs, or `SOLC=<path>`).
+
+| # | step | expected |
+|---|---|---|
+| 1 | `git status --short` | empty |
+| 2 | `npm ci && forge clean && forge build` | `Compiler run successful` |
+| 3 | `forge test` | `100 tests passed, 0 failed, 0 skipped (100 total tests)` |
+| 4 | `npm run mutations` | `22/22 undone fixes caught by every test named for them.` |
+| 5 | `npm run rehearse` | `58/58 checks passed.`, including creation 3,590 bytes (sha256 of the bytes `c5722546…b17470`) and runtime 2,601 bytes (`ac24c368…109888`), equal from forge and from `docs/TokenLock.standard-input.json` |
+| 6 | the target chain has EIP-6780 (post-Cancun); note its chain id | a fork level you have checked, not assumed |
+| 7 | the beneficiary Safe exists on that chain, 2-of-3 or better: `cast call <SAFE> 'getThreshold()(uint256)'`, `'getOwners()(address[])'` | the owners and threshold you intend |
+| 8 | dry run: `LOCK_CHAIN_ID=… LOCK_TOKEN=… LOCK_BENEFICIARY=… LOCK_UNLOCK_TIME=… LOCK_EXPECTED_OWNER=… forge script script/DeployTokenLock.s.sol --rpc-url $RPC` | the terms printed back, no `WARNING` line |
+| 9 | the same command with `--broadcast` and your deployer's signer | `TokenLock at 0x…` |
+| 10 | `RPC_URL=$RPC node scripts/verify-deployed.mjs <lock> --token … --beneficiary … --unlock-time … --chain-id …` | `MATCH — the deployed runtime is this source.` and `TERMS MATCH` |
+| 11 | verify the source on the explorer with `docs/TokenLock.standard-input.json` | verified |
+| 12 | fee-on-transfer token only: put the lock on the token's fee exclusion list | |
+| 13 | send a small amount first; from the Safe, simulate `sweep(<token>)` | reverts `LockedToken` |
+
+`forge clean` in step 2 matters: a build cache from another commit can leave the deploy script embedding an older
+`TokenLock`. `foundry.toml` turns off forge's dynamic test linking so an incremental build cannot do that, and
+`npm run rehearse` builds with `--force` and checks the deployed creation input against `out/` byte for byte.
 
 ## Documents
 - `docs/audit-2026-10/RESPONSE.md` — the response to each finding of the external review.
+- `docs/audit-2026-10/TRACEABILITY.md` — each finding, its disposition and the tests that pin it.
 - `docs/SAFE-TX-BUILDER-GUIDE.md` — operating a lock from a Safe's Transaction Builder.
 - `docs/TokenLock.abi.json` — ABI.
 - `docs/TokenLock.standard-input.json` — Solidity standard JSON input for explorer verification.
