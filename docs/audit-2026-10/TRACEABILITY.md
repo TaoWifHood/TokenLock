@@ -13,7 +13,7 @@ Test files: `T` = `test/TokenLock.t.sol`, `C` = `test/TokenLockConstructor.t.sol
 
 | Finding | Sev. | Claim | Disposition | Pinned by | Fix undone → caught by |
 |---|---|---|---|---|---|
-| VULN-011, VULN-012, VULN-013 | M / L / I | `extend` had no cumulative bound: repeated extensions, or a re-lock after expiry, could push the unlock out without limit | `maxUnlockTime` fixed at deployment; `extend` never passes it | T `test_constructor_setsTheCeilingAtDeploy`, `test_extend_toTheCeiling_succeeds_andOneSecondMore_reverts`, `test_extend_repeatedStepsStopAtTheCeiling`, `test_extend_afterExpiry_relockIsBoundedByTheCeiling`, `testFuzz_extendNeverShortens`, `testFuzz_extendAroundTheLiveWindowNeverShortens`; I `invariant_unlockNeverPassesTheCeiling` | ceiling relative to now → 2 tests; no ceiling → 3 tests |
+| VULN-011, VULN-012, VULN-013 | M / L / I | `extend` had no cumulative bound: repeated extensions, or a re-lock after expiry, could push the unlock out without limit | `maxUnlockTime` fixed at deployment; `extend` never passes it | T `test_constructor_setsTheCeilingAtDeploy`, `test_extend_toTheCeiling_succeeds_andOneSecondMore_reverts`, `test_extend_repeatedStepsStopAtTheCeiling`, `test_extend_afterExpiry_relockIsBoundedByTheCeiling`, `testFuzz_extendNeverShortens`; I `invariant_unlockNeverPassesTheCeiling` | ceiling relative to now → 2 tests; no ceiling → 3 tests |
 | VULN-003 (FIX-3) | L | the token as beneficiary seals every exit | constructor refuses it (`BeneficiaryIsToken`) | T `test_constructor_rejectsTheTokenAsBeneficiary`; D `test_preflight_refusesTheTokenAsBeneficiary`; rehearsal: constructor refusal on the node | 1 test |
 | VULN-021 (FIX-4) | L | `sweep(beneficiary)` calls into the beneficiary, which can re-enter | `sweep` refuses the beneficiary (`NotSweepable`) on every call | T `test_sweep_beneficiaryOrSelfAsToken_reverts`, `test_sweep_beneficiaryThatGainsCodeLater_isStillRefused` | 2 tests |
 | VULN-025 (FIX-4) | I | a beneficiary codeless at deployment can gain code later, so only a runtime check holds | the check is in `sweep`, not the constructor | T `test_sweep_beneficiaryThatGainsCodeLater_isStillRefused` (etches token-like, re-entering code onto the beneficiary after deployment; asserts no call is made) | with VULN-021 |
@@ -54,7 +54,7 @@ Test files: `T` = `test/TokenLock.t.sol`, `C` = `test/TokenLockConstructor.t.sol
 | Property | Pinned by |
 |---|---|
 | only the beneficiary can act, at any time | T `testFuzz_strangerTakesNothing`, `test_withdraw_stranger_revertsEvenAfterUnlock`, `test_sweep_stranger_reverts`, `test_extend_stranger_reverts`; I `invariant_strangerNeverSucceeds` |
-| `unlockTime` never decreases | T `test_extend_sameOrEarlier_reverts`, `testFuzz_extendAroundTheLiveWindowNeverShortens`; I `invariant_unlockNeverShortened` |
+| `unlockTime` never decreases | T `test_extend_sameOrEarlier_reverts`, `testFuzz_extendToAnEarlierFutureTimeIsRefused`; I `invariant_unlockNeverShortened` |
 | no fallback, no `receive`, no payable function | T `test_unknownSelector_reverts`, `test_plainEthSend_reverts` |
 | `sweep` cannot be aliased onto the locked token | T `test_sweep_dirtyAddressBits_revert`, `test_sweep_lockedToken_reverts`, the VULN-004 sweep tests |
 | runs on chains without the newer forks (`paris`) | rehearsal: no PUSH0, MCOPY, TLOAD, TSTORE, SELFDESTRUCT, DELEGATECALL, CALLCODE, CREATE or CREATE2 in creation or runtime; the same source built for cancun contains PUSH0 and fails the verifier |

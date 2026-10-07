@@ -73,7 +73,7 @@ const MUTATIONS = [
     tests: ["test_constructorRefusesItselfAsBeneficiary"] },
   { finding: "core", what: "extend accepts an earlier unlock time",
     undo: ["newUnlockTime <= unlockTime || ", ""],
-    tests: ["test_extend_sameOrEarlier_reverts", "testFuzz_extendAroundTheLiveWindowNeverShortens", "invariant_unlockNeverShortened"] },
+    tests: ["test_extend_sameOrEarlier_reverts", "testFuzz_extendToAnEarlierFutureTimeIsRefused", "invariant_unlockNeverShortened"] },
   { finding: "core", what: "extend accepts a time already passed",
     undo: ["newUnlockTime <= block.timestamp || ", ""],
     tests: ["test_extend_afterExpiry_toAPastTime_reverts"] },
