@@ -84,7 +84,7 @@ A floor in the constructor alone is a half-measure, because `extend(block.timest
   - an open relay or multicall must never be the beneficiary.
 - **"10 years":** the README, the Safe guide and the deploy script's revert string now say 3650 days. `MAX_LOCK_DURATION`'s NatSpec states unix seconds.
 - **Deploy script:** its token check stays `code.length > 0`. The constructor makes the same check and then the `balanceOf` probe, so the script check is a fast pre-flight, not the defence.
-- **Test count:** the README now states 68: the contract tests plus the 4 bound readings above. The review counted 43 against a suite that `forge test` reported as 39.
+- **Test count:** the README now states 100: the contract tests, the 4 bound readings above and the deploy-script tests. The review counted 43 against a suite that `forge test` reported as 39. `docs/audit-2026-10/TRACEABILITY.md` maps every finding to its tests, and `npm run mutations` shows each code fix is caught when undone.
 - **ABI and standard JSON input** are regenerated for the fixed source. The standard input compiles to the same runtime bytecode as `forge build`.
 
 ## Lower priority and environmental — unchanged
