@@ -1,6 +1,8 @@
-# `paris` is deliberate: it runs on chains that lack PUSH0 / MCOPY. Do not raise it without proving the target
-# chain supports the newer opcodes — a wrong evm_version fails at deploy time while `forge test` and
-# `forge script` simulation both stay green.
+# TokenLock (and everything that imports it, which compiles together with it) is built for `paris`, so it
+# runs on chains that lack PUSH0 / MCOPY. Everything else is built for `cancun`, and `evm_version` is also the
+# EVM forge runs tests and script simulations on: at `cancun` the deploy script can simulate a token that was
+# itself compiled for a newer EVM, which the constructor's `balanceOf` probe calls into. Do not raise the
+# TokenLock pin without proving the target chain supports the newer opcodes.
 [profile.default]
 src = "src"
 test = "test"
@@ -8,7 +10,9 @@ script = "script"
 out = "out"
 libs = ["node_modules"]
 solc_version = "0.8.26"
-evm_version = "paris"
+evm_version = "cancun"
+additional_compiler_profiles = [{ name = "paris", evm_version = "paris" }]
+compilation_restrictions = [{ paths = "src/TokenLock.sol", evm_version = "paris" }]
 optimizer = true
 optimizer_runs = 200
 bytecode_hash = "none"

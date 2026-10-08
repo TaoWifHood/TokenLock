@@ -257,7 +257,8 @@ async function main() {
   const toml = readFileSync(join(root, "foundry.toml"), "utf8");
   const tomlVal = (k) => toml.match(new RegExp(`^${k}\\s*=\\s*"?([^"\\n]+)"?`, "m"))?.[1];
   const s = input.settings;
-  check(s.evmVersion === tomlVal("evm_version") && s.optimizer.enabled === (tomlVal("optimizer") === "true")
+  const lockEvm = toml.match(/paths\s*=\s*"src\/TokenLock\.sol",\s*evm_version\s*=\s*"([^"]+)"/)?.[1];
+  check(s.evmVersion === lockEvm && s.optimizer.enabled === (tomlVal("optimizer") === "true")
     && String(s.optimizer.runs) === tomlVal("optimizer_runs") && s.metadata.bytecodeHash === tomlVal("bytecode_hash") && s.viaIR === false,
     "standard input: compiler settings equal foundry.toml", `${s.evmVersion}, optimizer ${s.optimizer.runs} runs, bytecodeHash ${s.metadata.bytecodeHash}`);
   const solcOut = JSON.parse(run(SOLC, ["--standard-json"], { input: JSON.stringify(input) }).out);
@@ -303,6 +304,8 @@ async function main() {
   check(Object.keys(scans.creation).length === 0 && Object.keys(scans.runtime).length === 0,
     "no PUSH0/MCOPY/TLOAD/TSTORE/SELFDESTRUCT/DELEGATECALL/CALLCODE/CREATE/CREATE2 in creation or runtime", JSON.stringify(scans.creation) + " " + JSON.stringify(scans.runtime));
   check((scans["cancun build"].PUSH0 ?? 0) > 0, "control: the same source built for cancun does contain PUSH0", `PUSH0 x${scans["cancun build"].PUSH0 ?? 0}`);
+  const tokenScan = scanOpcodes(artifact("Mocks.sol", "MockERC20").deployedBytecode.object);
+  check((tokenScan.PUSH0 ?? 0) > 0, "the rehearsal's token is built for a newer EVM (PUSH0), so the deploy script simulated a call into such a token", `PUSH0 x${tokenScan.PUSH0 ?? 0}`);
 
   // ── 2e. lifecycle on the node ──
   const topic = (sig) => cast("keccak", sig).toLowerCase();
