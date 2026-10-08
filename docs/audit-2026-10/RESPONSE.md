@@ -64,12 +64,12 @@ claim below runs as a test in `test/ExtendBoundReadings.t.sol`, which models the
 
 A floor in the constructor alone is a half-measure, because `extend(block.timestamp + 1)` on an expired lock still makes a one-second lock. A floor on `extend` too would forbid legitimate short re-locks. A too-short lock only opens early for its own beneficiary, so it fails safe. The deploy script keeps its 2-hour minimum lead.
 
-## The two questions — proposed answers, pending the owner's confirmation
+## The two questions — confirmed by the owner
 
-- **Q1 → VULN-031 (Medium), proposed: no pre-Cancun chains.** Locks are deployed only where EIP-6780 is active. The codehash pin above now makes `withdraw` refuse a replaced token on any chain, so this answer is a deployment rule backed by code.
-- **Q2 → VULN-033 (Medium), proposed:** a given lock lives on one chain only, and a deployment on another chain is a separate lock with its own arguments. The chain binding above stays as insurance against an accidental same-address deploy.
+- **Q1 → VULN-031 (Medium), confirmed: no pre-Cancun chains.** Locks are deployed only where EIP-6780 is active. The codehash pin above now makes `withdraw` refuse a replaced token on any chain, so this answer is a deployment rule backed by code.
+- **Q2 → VULN-033 (Medium), confirmed:** a given lock lives on one chain only, and a deployment on another chain is a separate lock with its own arguments. The chain binding above stays as insurance against an accidental same-address deploy.
 
-## The review's "act on this now" — proposed, pending the owner's confirmation
+## The review's "act on this now" — confirmed by the owner
 
 - No lock built from the reviewed source is funded again.
 - Every new lock is deployed from the fixed source.
@@ -77,7 +77,7 @@ A floor in the constructor alone is a half-measure, because `extend(block.timest
 
 ## Documentation
 
-- **DOC-1, DOC-2:** the contract header, see above.
+- **DOC-1, DOC-2:** the contract header, see above. DOC-1 remains acknowledged: the header's "the only contract that can call back is the token" is too narrow, because a token's `transfer` can call the beneficiary (the VULN-026 route). The source is left unchanged so it stays byte-identical to the verified hash; this correction stands in its place, and it changes no behaviour: every payment still goes to the immutable beneficiary and no storage is read after an external call.
 - **DOC-3, VULN-022 (Low):** the README's accepted items now state three things:
   - the beneficiary can delay withdrawal up to `maxUnlockTime`, whatever its threshold;
   - a 2-of-3 Safe survives a lost key;
