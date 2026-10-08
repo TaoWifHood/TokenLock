@@ -67,7 +67,7 @@ Every other lint line in a full `forge build` comes from the test files and mock
 ## Reproduce
 ```
 npm ci                 # pinned: @openzeppelin/contracts 5.6.1, forge-std v1.16.2
-forge build            # solc 0.8.26, evm paris, optimizer 200 runs, bytecode_hash none
+forge build            # solc 0.8.26, TokenLock for evm paris (tests and scripts run on cancun), optimizer 200 runs, bytecode_hash none
 forge test             # 100 tests: unit + constructor + stateful invariant fuzz + the review's extend-bound readings + the deploy script
 npm run mutations      # undoes each review fix in a scratch copy; every test named for it must fail
 npm run rehearse       # a full fresh deployment on a local anvil chain (see the checklist below)
@@ -93,7 +93,7 @@ forge installs, or `SOLC=<path>`).
 | 2 | `npm ci && forge clean && forge build` | `Compiler run successful` |
 | 3 | `forge test` | `100 tests passed, 0 failed, 0 skipped (100 total tests)` |
 | 4 | `npm run mutations` | `22/22 undone fixes caught by every test named for them.` |
-| 5 | `npm run rehearse` | `58/58 checks passed.`, including creation 3,590 bytes (sha256 of the bytes `c5722546…b17470`) and runtime 2,601 bytes (`ac24c368…109888`), equal from forge and from `docs/TokenLock.standard-input.json` |
+| 5 | `npm run rehearse` | `59/59 checks passed.`, including creation 3,590 bytes (sha256 of the bytes `c5722546…b17470`) and runtime 2,601 bytes (`ac24c368…109888`), equal from forge and from `docs/TokenLock.standard-input.json` |
 | 6 | the target chain has EIP-6780 (post-Cancun); note its chain id | a fork level you have checked, not assumed |
 | 7 | the beneficiary Safe exists on that chain, 2-of-3 or better: `cast call <SAFE> 'getThreshold()(uint256)'`, `'getOwners()(address[])'` | the owners and threshold you intend |
 | 8 | dry run: `LOCK_CHAIN_ID=… LOCK_TOKEN=… LOCK_BENEFICIARY=… LOCK_UNLOCK_TIME=… LOCK_EXPECTED_OWNER=… forge script script/DeployTokenLock.s.sol --rpc-url $RPC` | the terms printed back, no `WARNING` line |
