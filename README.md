@@ -1,5 +1,7 @@
 # TokenLock
 
+[![Sentios: active](https://img.shields.io/endpoint?url=https%3A%2F%2Fsentios.io%2Fapi%2Fv1%2Fbadge%2Ftokenlock.json)](https://sentios.io/active-projects#tokenlock)
+
 A single-purpose ERC-20 time lock for any EVM chain. One contract, 132 lines: no owner, no admin, no proxy, no
 upgrade, no ETH path. Each lock is bound to the chain it was deployed on; no chain-specific opcode is used
 (compiled for `paris`).
